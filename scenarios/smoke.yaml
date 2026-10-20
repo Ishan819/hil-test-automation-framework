@@ -1,0 +1,25 @@
+# v0.1 uses a mock bench: no physical hardware is connected.
+suite: bench-smoke-tests
+bench:
+  type: simulated
+  initial_voltage: 0.0
+  temperature_c: 28.0
+  connected: true
+
+tests:
+  - name: power_rail_reaches_five_volts
+    steps:
+      - action: set_voltage
+        value: 5.0
+      - action: expect_voltage
+        value: 5.0
+        tolerance: 0.1
+
+  - name: device_is_not_overheating
+    steps:
+      - action: expect_temperature_below
+        limit_c: 75.0
+
+  - name: device_responds_to_heartbeat
+    steps:
+      - action: expect_heartbeat

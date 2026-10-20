@@ -1,0 +1,16 @@
+# Intentionally failing scenario for checking triage and exit codes.
+suite: failure-demo
+bench:
+  type: simulated
+  initial_voltage: 0.0
+  temperature_c: 80.0
+  connected: false
+
+tests:
+  - name: expect_safe_temperature
+    steps:
+      - action: expect_temperature_below
+        limit_c: 75.0
+  - name: expect_device_heartbeat
+    steps:
+      - action: expect_heartbeat
