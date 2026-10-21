@@ -63,3 +63,40 @@ tests:
 """)
     with pytest.raises(ValueError, match="tolerance"):
         load_suite(config)
+
+
+def test_temperature_changes_reach_bench():
+    from hil_automation.bench import SimulatedBench
+    from hil_automation.runner import execute_step
+
+    bench = SimulatedBench()
+    execute_step(bench, {"action": "set_temperature", "value": 65.5})
+    assert bench.read_temperature_c() == 65.5
+
+
+def test_temperature_overheating_and_isolation():
+    suite = Suite("thermal", {"type": "simulated", "temperature_c": 35}, [
+        HilTestCase("overheat", [
+            {"action": "set_temperature", "value": 95},
+            {"action": "expect_temperature_below", "limit_c": 80},
+            {"action": "set_temperature", "value": 20},
+        ]),
+        HilTestCase("fresh", [
+            {"action": "expect_temperature_below", "limit_c": 36},
+        ]),
+        HilTestCase("cool", [
+            {"action": "set_temperature", "value": 25},
+            {"action": "expect_temperature_below", "limit_c": 30},
+        ]),
+    ])
+    report = run_suite(suite)
+    assert (report.passed, report.failed) == (2, 1)
+    assert report.results[0].details == "Step 2: Temperature 95.0 °C exceeds limit"
+
+
+def test_temperature_limit_is_strict():
+    suite = Suite("boundary", {}, [HilTestCase("equal", [
+        {"action": "set_temperature", "value": 80},
+        {"action": "expect_temperature_below", "limit_c": 80},
+    ])])
+    assert run_suite(suite).failed == 1
