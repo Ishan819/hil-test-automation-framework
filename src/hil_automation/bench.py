@@ -1,5 +1,6 @@
 """Abstraction for the device being tested and a deterministic simulator."""
 from dataclasses import dataclass
+import math
 from typing import Protocol
 
 
@@ -9,6 +10,8 @@ class Bench(Protocol):
     def set_voltage(self, voltage: float) -> None: ...
 
     def read_voltage(self) -> float: ...
+
+    def set_temperature(self, temperature_c: float) -> None: ...
 
     def read_temperature_c(self) -> float: ...
 
@@ -30,6 +33,17 @@ class SimulatedBench:
 
     def read_voltage(self) -> float:
         return self.voltage
+
+    def set_temperature(self, temperature_c: float) -> None:
+        """Set simulated temperature in the inclusive range -40 to 150 °C."""
+        if (
+            isinstance(temperature_c, bool)
+            or not isinstance(temperature_c, (int, float))
+            or not -40 <= temperature_c <= 150
+            or not math.isfinite(temperature_c)
+        ):
+            raise ValueError("Temperature must be a finite number between -40 and 150 °C")
+        self.temperature_c = float(temperature_c)
 
     def read_temperature_c(self) -> float:
         return self.temperature_c
