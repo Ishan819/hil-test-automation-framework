@@ -31,6 +31,8 @@ def execute_step(bench: Bench, step: dict) -> None:
     action = step["action"]
     if action == "set_voltage":
         bench.set_voltage(float(step["value"]))
+    elif action == "set_temperature":
+        bench.set_temperature(step["value"])
     elif action == "expect_voltage":
         actual = bench.read_voltage()
         expected, tolerance = float(step["value"]), float(step["tolerance"])
