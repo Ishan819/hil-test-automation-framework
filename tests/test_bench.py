@@ -17,3 +17,19 @@ def test_invalid_temperature_preserves_state(value):
     with pytest.raises(ValueError, match="Temperature must be a finite number"):
         bench.set_temperature(value)
     assert bench.read_temperature_c() == 28
+
+
+def test_disconnect_and_reconnect():
+    bench = SimulatedBench()
+    bench.set_connected(False)
+    assert bench.heartbeat_ok() is False
+    bench.set_connected(True)
+    assert bench.heartbeat_ok() is True
+
+
+@pytest.mark.parametrize("value", [0, 1, -1, 1.0, "true", "false", None, [], {}])
+def test_invalid_connection_preserves_state(value):
+    bench = SimulatedBench()
+    with pytest.raises(ValueError, match="Connection state must be true or false"):
+        bench.set_connected(value)
+    assert bench.heartbeat_ok() is True
