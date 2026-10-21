@@ -28,6 +28,9 @@ class SimulatedBench:
     temperature_c: float = 28.0
     connected: bool = True
 
+    def __post_init__(self) -> None:
+        self.set_temperature(self.temperature_c)
+
     def set_voltage(self, voltage: float) -> None:
         if not 0.0 <= voltage <= 24.0:
             raise ValueError("Voltage must be between 0 and 24 V")

@@ -137,3 +137,11 @@ def test_connection_changes_reach_bench():
     assert bench.heartbeat_ok() is False
     execute_step(bench, {"action": "set_connection", "connected": True})
     assert bench.heartbeat_ok() is True
+
+
+@pytest.mark.parametrize("value", [True, "28", None, float("nan"), float("inf"), -41, 151])
+def test_make_bench_rejects_invalid_initial_temperature(value):
+    from hil_automation.runner import make_bench
+
+    with pytest.raises(ValueError, match="Temperature must be a finite number"):
+        make_bench({"temperature_c": value})

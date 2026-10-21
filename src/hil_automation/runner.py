@@ -54,7 +54,7 @@ def execute_step(bench: Bench, step: dict) -> None:
 def make_bench(config: dict) -> SimulatedBench:
     return SimulatedBench(
         voltage=float(config.get("initial_voltage", 0)),
-        temperature_c=float(config.get("temperature_c", 28)),
+        temperature_c=config.get("temperature_c", 28),
         connected=config.get("connected", True),
     )
 

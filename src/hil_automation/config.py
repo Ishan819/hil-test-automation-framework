@@ -56,6 +56,8 @@ def load_suite(path: str | Path) -> Suite:
             raise ValueError(f"bench.{key} must be a number")
     if "connected" in bench and not isinstance(bench["connected"], bool):
         raise ValueError("bench.connected must be true or false")
+    if "temperature_c" in bench:
+        SimulatedBench().set_temperature(bench["temperature_c"])
     initial_voltage = bench.get("initial_voltage", 0.0)
     if not 0 <= initial_voltage <= 24:
         raise ValueError("bench.initial_voltage must be between 0 and 24 V")

@@ -33,3 +33,15 @@ def test_invalid_connection_preserves_state(value):
     with pytest.raises(ValueError, match="Connection state must be true or false"):
         bench.set_connected(value)
     assert bench.heartbeat_ok() is True
+
+
+@pytest.mark.parametrize("value", [-40, 28.5, 150])
+def test_initial_temperature(value):
+    assert SimulatedBench(temperature_c=value).read_temperature_c() == value
+
+
+@pytest.mark.parametrize("value", [True, False, "28", None, float("nan"),
+                                  float("inf"), -float("inf"), -41, 151, 10**1000])
+def test_invalid_initial_temperature(value):
+    with pytest.raises(ValueError, match="Temperature must be a finite number"):
+        SimulatedBench(temperature_c=value)

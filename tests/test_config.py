@@ -42,3 +42,22 @@ def test_connection_action_loads(tmp_path, value, expected):
 def test_invalid_connection_action(tmp_path, field):
     with pytest.raises(ValueError, match="set_connection.connected must be true or false"):
         load_suite(write_suite(tmp_path, f"{{action: set_connection{field}}}"))
+
+
+@pytest.mark.parametrize("value", ["-40", "28.5", "150"])
+def test_initial_temperature_loads(tmp_path, value):
+    suite = load_suite(write_suite(
+        tmp_path, "{action: expect_heartbeat}",
+        f"{{type: simulated, temperature_c: {value}}}",
+    ))
+    assert suite.bench["temperature_c"] == float(value)
+
+
+@pytest.mark.parametrize("value", ["true", "'28'", "null", ".nan", ".inf", "-.inf",
+                                 "-40.1", "150.1"])
+def test_invalid_initial_temperature(tmp_path, value):
+    with pytest.raises(ValueError, match="bench.temperature_c must be a number|Temperature must be"):
+        load_suite(write_suite(
+            tmp_path, "{action: expect_heartbeat}",
+            f"{{type: simulated, temperature_c: {value}}}",
+        ))
