@@ -25,6 +25,7 @@ class Suite:
 REQUIRED_PARAMS = {
     "set_voltage": ("value",),
     "set_temperature": ("value",),
+    "set_connection": ("connected",),
     "expect_voltage": ("value", "tolerance"),
     "expect_temperature_below": ("limit_c",),
     "expect_heartbeat": (),
@@ -83,7 +84,10 @@ def load_suite(path: str | Path) -> Suite:
                 raise ValueError(f"Unknown action in test '{test_name}', step {index}")
             action = step["action"]
             for param in REQUIRED_PARAMS[action]:
-                if not _number(step.get(param)):
+                if action == "set_connection":
+                    if not isinstance(step.get(param), bool):
+                        raise ValueError(f"{test_name}: {action}.{param} must be true or false")
+                elif not _number(step.get(param)):
                     raise ValueError(f"{test_name}: {action}.{param} must be a number")
             if action == "set_temperature":
                 SimulatedBench().set_temperature(step["value"])
