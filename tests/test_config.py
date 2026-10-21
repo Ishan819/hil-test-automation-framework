@@ -26,3 +26,19 @@ def test_temperature_action_loads(tmp_path, value):
 def test_invalid_temperature_action(tmp_path, field):
     with pytest.raises(ValueError, match="must be a number|Temperature must be"):
         load_suite(write_suite(tmp_path, f"{{action: set_temperature{field}}}"))
+
+
+@pytest.mark.parametrize("value, expected", [("true", True), ("false", False)])
+def test_connection_action_loads(tmp_path, value, expected):
+    suite = load_suite(write_suite(tmp_path, f"{{action: set_connection, connected: {value}}}"))
+    assert suite.tests[0].steps[0]["connected"] is expected
+
+
+@pytest.mark.parametrize("field", ["", ", connected: 0", ", connected: 1",
+                                 ", connected: 1.0", ", connected: 'true'",
+                                 ", connected: 'false'", ", connected: null",
+                                 ", connected: []", ", connected: {}",
+                                 ", connected: .nan"])
+def test_invalid_connection_action(tmp_path, field):
+    with pytest.raises(ValueError, match="set_connection.connected must be true or false"):
+        load_suite(write_suite(tmp_path, f"{{action: set_connection{field}}}"))
