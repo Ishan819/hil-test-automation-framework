@@ -1,0 +1,18 @@
+# Intentionally failing software-only fault injection; CLI exit code is 1.
+suite: simulated-faults
+bench:
+  type: simulated
+  temperature_c: 28
+  connected: true
+
+tests:
+  - name: thermal_overload
+    steps:
+      - {action: set_voltage, value: 12}
+      - {action: set_temperature, value: 95}
+      - {action: expect_temperature_below, limit_c: 75}
+  - name: lost_device_connection
+    steps:
+      - {action: expect_heartbeat}
+      - {action: set_connection, connected: false}
+      - {action: expect_heartbeat}

@@ -1,0 +1,25 @@
+# Software-only recovery exercises; all cases are expected to pass.
+suite: simulated-recovery
+bench:
+  type: simulated
+  temperature_c: 28
+  connected: true
+
+tests:
+  - name: cool_after_thermal_load
+    steps:
+      - {action: set_voltage, value: 12}
+      - {action: set_temperature, value: 95}
+      - {action: set_voltage, value: 0}
+      - {action: set_temperature, value: 35}
+      - {action: expect_temperature_below, limit_c: 75}
+      - {action: expect_voltage, value: 0, tolerance: 0.1}
+  - name: reconnect_after_link_interruption
+    steps:
+      - {action: set_connection, connected: false}
+      - {action: set_connection, connected: true}
+      - {action: expect_heartbeat}
+  - name: fresh_case_starts_healthy
+    steps:
+      - {action: expect_temperature_below, limit_c: 30}
+      - {action: expect_heartbeat}
