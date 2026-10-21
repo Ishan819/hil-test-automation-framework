@@ -5,6 +5,8 @@ from typing import Any
 
 import yaml
 
+from .bench import SimulatedBench
+
 
 @dataclass(frozen=True)
 class TestCase:
@@ -22,6 +24,7 @@ class Suite:
 # Defining actions centrally makes unrecognized steps fail before execution.
 REQUIRED_PARAMS = {
     "set_voltage": ("value",),
+    "set_temperature": ("value",),
     "expect_voltage": ("value", "tolerance"),
     "expect_temperature_below": ("limit_c",),
     "expect_heartbeat": (),
@@ -82,6 +85,8 @@ def load_suite(path: str | Path) -> Suite:
             for param in REQUIRED_PARAMS[action]:
                 if not _number(step.get(param)):
                     raise ValueError(f"{test_name}: {action}.{param} must be a number")
+            if action == "set_temperature":
+                SimulatedBench().set_temperature(step["value"])
             if action == "expect_voltage" and step["tolerance"] < 0:
                 raise ValueError("Voltage tolerance cannot be negative")
             if action == "set_voltage" and not 0 <= step["value"] <= 24:
