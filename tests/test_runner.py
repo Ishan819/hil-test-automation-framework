@@ -100,3 +100,40 @@ def test_temperature_limit_is_strict():
         {"action": "expect_temperature_below", "limit_c": 80},
     ])])
     assert run_suite(suite).failed == 1
+
+
+def test_lost_connection_fails_and_next_case_is_connected():
+    suite = Suite("connection", {}, [
+        HilTestCase("lost", [
+            {"action": "set_connection", "connected": False},
+            {"action": "expect_heartbeat"},
+            {"action": "set_connection", "connected": True},
+        ]),
+        HilTestCase("fresh", [{"action": "expect_heartbeat"}]),
+    ])
+    report = run_suite(suite)
+    assert (report.passed, report.failed) == (1, 1)
+    assert report.results[0].details == "Step 2: Device heartbeat not detected"
+
+
+def test_connection_can_be_restored():
+    suite = Suite("recovery", {"connected": False}, [
+        HilTestCase("restored", [
+            {"action": "set_connection", "connected": True},
+            {"action": "expect_heartbeat"},
+        ]),
+        HilTestCase("initially-disconnected", [{"action": "expect_heartbeat"}]),
+    ])
+    report = run_suite(suite)
+    assert [result.status for result in report.results] == ["passed", "failed"]
+
+
+def test_connection_changes_reach_bench():
+    from hil_automation.bench import SimulatedBench
+    from hil_automation.runner import execute_step
+
+    bench = SimulatedBench()
+    execute_step(bench, {"action": "set_connection", "connected": False})
+    assert bench.heartbeat_ok() is False
+    execute_step(bench, {"action": "set_connection", "connected": True})
+    assert bench.heartbeat_ok() is True

@@ -42,6 +42,8 @@ def execute_step(bench: Bench, step: dict) -> None:
         actual = bench.read_temperature_c()
         if not actual < float(step["limit_c"]):
             raise AssertionError(f"Temperature {actual:.1f} °C exceeds limit")
+    elif action == "set_connection":
+        bench.set_connected(step["connected"])
     elif action == "expect_heartbeat":
         if not bench.heartbeat_ok():
             raise AssertionError("Device heartbeat not detected")
