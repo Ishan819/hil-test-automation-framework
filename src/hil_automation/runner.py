@@ -40,13 +40,16 @@ def execute_step(bench: Bench, step: dict) -> None:
             raise AssertionError(f"Voltage {actual:.2f} V, expected {expected:.2f} ± {tolerance:.2f} V")
     elif action == "expect_temperature_below":
         actual = bench.read_temperature_c()
-        if not actual < float(step["limit_c"]):
-            raise AssertionError(f"Temperature {actual:.1f} °C exceeds limit")
+        limit = float(step["limit_c"])
+        if not actual < limit:
+            raise AssertionError(
+                f"Temperature {actual:.1f} °C is not below limit {limit:.1f} °C"
+            )
     elif action == "set_connection":
         bench.set_connected(step["connected"])
     elif action == "expect_heartbeat":
         if not bench.heartbeat_ok():
-            raise AssertionError("Device heartbeat not detected")
+            raise AssertionError("Device heartbeat not detected; expected an active connection")
     else:
         raise ValueError(f"Unsupported action: {action}")
 

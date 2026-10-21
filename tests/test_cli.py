@@ -62,6 +62,6 @@ def test_cli_fault_scenario(tmp_path):
         "thermal_overload", "lost_device_connection",
     ]
     assert all(case["status"] == "failed" for case in data["results"])
-    assert data["results"][0]["details"] == "Step 3: Temperature 95.0 °C exceeds limit"
-    assert data["results"][1]["details"] == "Step 3: Device heartbeat not detected"
+    assert data["results"][0]["details"] == "Step 3: Temperature 95.0 °C is not below limit 75.0 °C"
+    assert data["results"][1]["details"] == "Step 3: Device heartbeat not detected; expected an active connection"
     assert "0 passed, 2 failed" in finished.stdout

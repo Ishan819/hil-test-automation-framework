@@ -91,7 +91,7 @@ def test_temperature_overheating_and_isolation():
     ])
     report = run_suite(suite)
     assert (report.passed, report.failed) == (2, 1)
-    assert report.results[0].details == "Step 2: Temperature 95.0 °C exceeds limit"
+    assert report.results[0].details == "Step 2: Temperature 95.0 °C is not below limit 80.0 °C"
 
 
 def test_temperature_limit_is_strict():
@@ -113,7 +113,7 @@ def test_lost_connection_fails_and_next_case_is_connected():
     ])
     report = run_suite(suite)
     assert (report.passed, report.failed) == (1, 1)
-    assert report.results[0].details == "Step 2: Device heartbeat not detected"
+    assert report.results[0].details == "Step 2: Device heartbeat not detected; expected an active connection"
 
 
 def test_connection_can_be_restored():
@@ -145,3 +145,24 @@ def test_make_bench_rejects_invalid_initial_temperature(value):
 
     with pytest.raises(ValueError, match="Temperature must be a finite number"):
         make_bench({"temperature_c": value})
+
+
+@pytest.mark.parametrize("actual, limit, message", [
+    (80, 80, "Temperature 80.0 °C is not below limit 80.0 °C"),
+    (95.5, 75.5, "Temperature 95.5 °C is not below limit 75.5 °C"),
+])
+def test_temperature_diagnostic_includes_actual_and_strict_limit(actual, limit, message):
+    suite = Suite("diagnostics", {}, [HilTestCase("thermal", [
+        {"action": "set_temperature", "value": actual},
+        {"action": "expect_temperature_below", "limit_c": limit},
+    ])])
+    assert run_suite(suite).results[0].details == f"Step 2: {message}"
+
+
+def test_initial_disconnection_diagnostic():
+    suite = Suite("diagnostics", {"connected": False}, [
+        HilTestCase("connection", [{"action": "expect_heartbeat"}]),
+    ])
+    assert run_suite(suite).results[0].details == (
+        "Step 1: Device heartbeat not detected; expected an active connection"
+    )
