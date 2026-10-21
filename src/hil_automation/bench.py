@@ -15,6 +15,8 @@ class Bench(Protocol):
 
     def read_temperature_c(self) -> float: ...
 
+    def set_connected(self, connected: bool) -> None: ...
+
     def heartbeat_ok(self) -> bool: ...
 
 
@@ -47,6 +49,12 @@ class SimulatedBench:
 
     def read_temperature_c(self) -> float:
         return self.temperature_c
+
+    def set_connected(self, connected: bool) -> None:
+        """Change the simulated device connection without physical I/O."""
+        if not isinstance(connected, bool):
+            raise ValueError("Connection state must be true or false")
+        self.connected = connected
 
     def heartbeat_ok(self) -> bool:
         return self.connected
