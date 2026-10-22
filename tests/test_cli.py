@@ -95,3 +95,47 @@ def test_listing_does_not_execute_suite(monkeypatch, capsys):
     ])
     assert cli.main() == 0
     assert "power_rail_reaches_five_volts" in capsys.readouterr().out
+
+
+def test_cli_runs_only_selected_case_with_initial_bench_state(tmp_path):
+    config = tmp_path / "selection.yaml"
+    config.write_text("""suite: selection
+bench: {type: simulated, initial_voltage: 3.3, temperature_c: 35, connected: true}
+tests:
+  - name: mutate-and-fail
+    steps:
+      - {action: set_voltage, value: 12}
+      - {action: set_temperature, value: 95}
+      - {action: set_connection, connected: false}
+      - {action: expect_heartbeat}
+  - name: initial-state
+    steps:
+      - {action: expect_voltage, value: 3.3, tolerance: 0}
+      - {action: expect_temperature_below, limit_c: 36}
+      - {action: expect_heartbeat}
+""", encoding="utf-8")
+    report = tmp_path / "selected.json"
+    finished = subprocess.run(
+        [sys.executable, "-m", "hil_automation.cli", str(config),
+         "--case", "initial-state", "--report", str(report)],
+        capture_output=True, text=True,
+    )
+    assert finished.returncode == 0, finished.stderr
+    data = json.loads(report.read_text())
+    assert data["suite"] == "selection"
+    assert (data["passed"], data["failed"]) == (1, 0)
+    assert [case["name"] for case in data["results"]] == ["initial-state"]
+    assert "mutate-and-fail" not in finished.stdout
+
+
+def test_cli_rejects_listing_and_execution_together(tmp_path):
+    report = tmp_path / "conflict.json"
+    finished = subprocess.run(
+        [sys.executable, "-m", "hil_automation.cli",
+         str(ROOT / "scenarios" / "smoke.yaml"), "--list-tests",
+         "--case", "device_responds_to_heartbeat", "--report", str(report)],
+        capture_output=True, text=True,
+    )
+    assert finished.returncode == 2
+    assert "not allowed with argument" in finished.stderr
+    assert not report.exists()

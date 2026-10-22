@@ -4,7 +4,7 @@ import json
 import sys
 from pathlib import Path
 
-from .config import load_suite
+from .config import Suite, load_suite
 from .runner import run_suite
 
 
@@ -12,10 +12,12 @@ def main() -> int:
     parser = argparse.ArgumentParser(description="Run a simulated HIL test suite")
     parser.add_argument("config", help="Path to a YAML test suite")
     parser.add_argument("--report", default="reports/latest.json", help="JSON output path")
-    parser.add_argument(
+    selection = parser.add_mutually_exclusive_group()
+    selection.add_argument(
         "--list-tests", action="store_true",
         help="List case names without executing tests or writing a report",
     )
+    selection.add_argument("--case", metavar="NAME", help="Run only the named case")
     args = parser.parse_args()
 
     try:
@@ -25,6 +27,11 @@ def main() -> int:
             for case in suite.tests:
                 print(f"  {case.name}")
             return 0
+        if args.case is not None:
+            selected = [case for case in suite.tests if case.name == args.case]
+            if not selected:
+                raise ValueError(f"Unknown test case: {args.case}")
+            suite = Suite(suite.name, suite.bench, selected)
         result = run_suite(suite)
         output = Path(args.report)
         output.parent.mkdir(parents=True, exist_ok=True)
