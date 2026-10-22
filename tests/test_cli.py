@@ -139,3 +139,38 @@ def test_cli_rejects_listing_and_execution_together(tmp_path):
     assert finished.returncode == 2
     assert "not allowed with argument" in finished.stderr
     assert not report.exists()
+
+
+def test_unknown_case_lists_available_names_and_preserves_report(tmp_path):
+    report = tmp_path / "existing.json"
+    report.write_text("existing report", encoding="utf-8")
+    finished = subprocess.run(
+        [sys.executable, "-m", "hil_automation.cli",
+         str(ROOT / "scenarios" / "faults.yaml"), "--case", "missing",
+         "--report", str(report)],
+        capture_output=True, text=True,
+    )
+    assert finished.returncode == 2
+    assert finished.stdout == ""
+    assert finished.stderr == (
+        "Error: Unknown test case: 'missing'. Available cases: "
+        "thermal_overload, lost_device_connection\n"
+    )
+    assert report.read_text() == "existing report"
+
+
+def test_unknown_case_does_not_execute_or_create_report(monkeypatch, capsys, tmp_path):
+    from hil_automation import cli
+
+    def unexpected_run(suite):
+        raise AssertionError("Unknown names must be rejected before execution")
+
+    report = tmp_path / "unused" / "report.json"
+    monkeypatch.setattr(cli, "run_suite", unexpected_run)
+    monkeypatch.setattr(sys, "argv", [
+        "hil-run", str(ROOT / "scenarios" / "smoke.yaml"),
+        "--case", "Device_responds_to_heartbeat", "--report", str(report),
+    ])
+    assert cli.main() == 2
+    assert "device_responds_to_heartbeat" in capsys.readouterr().err
+    assert not report.parent.exists()

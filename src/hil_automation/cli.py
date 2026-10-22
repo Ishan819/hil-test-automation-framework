@@ -30,7 +30,10 @@ def main() -> int:
         if args.case is not None:
             selected = [case for case in suite.tests if case.name == args.case]
             if not selected:
-                raise ValueError(f"Unknown test case: {args.case}")
+                available = ", ".join(case.name for case in suite.tests)
+                raise ValueError(
+                    f"Unknown test case: {args.case!r}. Available cases: {available}"
+                )
             suite = Suite(suite.name, suite.bench, selected)
         result = run_suite(suite)
         output = Path(args.report)
