@@ -3,6 +3,8 @@ import subprocess
 import sys
 from pathlib import Path
 
+import pytest
+
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -174,3 +176,75 @@ def test_unknown_case_does_not_execute_or_create_report(monkeypatch, capsys, tmp
     assert cli.main() == 2
     assert "device_responds_to_heartbeat" in capsys.readouterr().err
     assert not report.parent.exists()
+
+
+@pytest.mark.parametrize("scenario, name, status, exit_code, details", [
+    ("recovery.yaml", "reconnect_after_link_interruption", "passed", 0, "All steps passed"),
+    ("faults.yaml", "thermal_overload", "failed", 1,
+     "Step 3: Temperature 95.0 °C is not below limit 75.0 °C"),
+    ("faults.yaml", "lost_device_connection", "failed", 1,
+     "Step 3: Device heartbeat not detected; expected an active connection"),
+])
+def test_filtered_cli_report_compatibility(tmp_path, scenario, name, status, exit_code, details):
+    report = tmp_path / "nested" / "filtered.json"
+    finished = subprocess.run(
+        [sys.executable, "-m", "hil_automation.cli",
+         str(ROOT / "scenarios" / scenario), "--case", name, "--report", str(report)],
+        capture_output=True, text=True,
+    )
+    assert finished.returncode == exit_code, finished.stderr
+    assert finished.stderr == ""
+    data = json.loads(report.read_text())
+    assert set(data) == {"suite", "started_at", "passed", "failed", "results"}
+    assert data["suite"] == ("simulated-recovery" if exit_code == 0 else "simulated-faults")
+    assert (data["passed"], data["failed"]) == ((1, 0) if exit_code == 0 else (0, 1))
+    assert len(data["results"]) == 1
+    case = data["results"][0]
+    assert set(case) == {"name", "status", "duration_ms", "details"}
+    assert (case["name"], case["status"], case["details"]) == (name, status, details)
+    assert case["duration_ms"] >= 0
+    assert data["started_at"]
+    assert f"[{status.upper():6}] {name}" in finished.stdout
+
+
+def test_default_cli_runs_all_cases_and_writes_default_report(tmp_path):
+    finished = subprocess.run(
+        [sys.executable, "-m", "hil_automation.cli",
+         str(ROOT / "scenarios" / "smoke.yaml")],
+        cwd=tmp_path, capture_output=True, text=True,
+    )
+    assert finished.returncode == 0, finished.stderr
+    data = json.loads((tmp_path / "reports" / "latest.json").read_text())
+    assert [case["name"] for case in data["results"]] == [
+        "power_rail_reaches_five_volts", "device_is_not_overheating",
+        "device_responds_to_heartbeat",
+    ]
+    assert (data["passed"], data["failed"]) == (3, 0)
+    assert "JSON report: reports/latest.json" in finished.stdout
+
+
+def test_listing_preserves_existing_report(tmp_path):
+    report = tmp_path / "existing.json"
+    report.write_text("previous run", encoding="utf-8")
+    finished = subprocess.run(
+        [sys.executable, "-m", "hil_automation.cli",
+         str(ROOT / "scenarios" / "smoke.yaml"), "--list-tests", "--report", str(report)],
+        capture_output=True, text=True,
+    )
+    assert finished.returncode == 0, finished.stderr
+    assert report.read_text() == "previous run"
+
+
+@pytest.mark.parametrize("option", [["--list-tests"], ["--case", "anything"]])
+def test_selection_options_still_validate_yaml(tmp_path, option):
+    config = tmp_path / "invalid.yaml"
+    config.write_text("suite: incomplete\n", encoding="utf-8")
+    report = tmp_path / "invalid.json"
+    finished = subprocess.run(
+        [sys.executable, "-m", "hil_automation.cli", str(config),
+         *option, "--report", str(report)],
+        capture_output=True, text=True,
+    )
+    assert finished.returncode == 2
+    assert "bench.type: simulated" in finished.stderr
+    assert not report.exists()
