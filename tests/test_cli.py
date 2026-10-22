@@ -65,3 +65,33 @@ def test_cli_fault_scenario(tmp_path):
     assert data["results"][0]["details"] == "Step 3: Temperature 95.0 °C is not below limit 75.0 °C"
     assert data["results"][1]["details"] == "Step 3: Device heartbeat not detected; expected an active connection"
     assert "0 passed, 2 failed" in finished.stdout
+
+
+def test_cli_lists_cases_without_writing_report(tmp_path):
+    report = tmp_path / "listing.json"
+    finished = subprocess.run(
+        [sys.executable, "-m", "hil_automation.cli",
+         str(ROOT / "scenarios" / "faults.yaml"), "--list-tests",
+         "--report", str(report)],
+        capture_output=True, text=True,
+    )
+    assert finished.returncode == 0, finished.stderr
+    assert finished.stdout.splitlines() == [
+        "Suite: simulated-faults", "  thermal_overload", "  lost_device_connection",
+    ]
+    assert finished.stderr == ""
+    assert not report.exists()
+
+
+def test_listing_does_not_execute_suite(monkeypatch, capsys):
+    from hil_automation import cli
+
+    def unexpected_run(suite):
+        raise AssertionError("Listing must not execute cases")
+
+    monkeypatch.setattr(cli, "run_suite", unexpected_run)
+    monkeypatch.setattr(sys, "argv", [
+        "hil-run", str(ROOT / "scenarios" / "smoke.yaml"), "--list-tests",
+    ])
+    assert cli.main() == 0
+    assert "power_rail_reaches_five_volts" in capsys.readouterr().out

@@ -12,10 +12,19 @@ def main() -> int:
     parser = argparse.ArgumentParser(description="Run a simulated HIL test suite")
     parser.add_argument("config", help="Path to a YAML test suite")
     parser.add_argument("--report", default="reports/latest.json", help="JSON output path")
+    parser.add_argument(
+        "--list-tests", action="store_true",
+        help="List case names without executing tests or writing a report",
+    )
     args = parser.parse_args()
 
     try:
         suite = load_suite(args.config)
+        if args.list_tests:
+            print(f"Suite: {suite.name}")
+            for case in suite.tests:
+                print(f"  {case.name}")
+            return 0
         result = run_suite(suite)
         output = Path(args.report)
         output.parent.mkdir(parents=True, exist_ok=True)
