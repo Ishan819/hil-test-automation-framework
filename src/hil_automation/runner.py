@@ -1,6 +1,7 @@
 """Execute YAML steps against a bench and collect structured results."""
 from dataclasses import asdict, dataclass, field
 from datetime import datetime, timezone
+import platform
 from time import perf_counter
 from uuid import uuid4
 
@@ -38,7 +39,15 @@ class RunReport:
     schema_version: str = "1.0"
 
     def to_dict(self) -> dict:
-        return asdict(self)
+        payload = asdict(self)
+        payload["metadata"] = {
+            "python_version": platform.python_version(),
+            "system": platform.system(),
+            "machine": platform.machine(),
+            "started_at": self.started_at,
+            "finished_at": self.finished_at,
+        }
+        return payload
 
 
 def execute_step(bench: Bench, step: dict) -> None:
