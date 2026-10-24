@@ -11,7 +11,7 @@ def test_step_model_and_independent_case_defaults():
     first.steps.append(step)
     assert second.steps == []
     assert asdict(first)["steps"] == [{
-        "index": 1, "action": "expect_heartbeat", "status": "passed", "details": "Step passed", "duration_ms": 0.0,
+        "index": 1, "action": "expect_heartbeat", "status": "passed", "details": "Step passed", "duration_ms": 0.0, "failure_category": None,
     }]
 
 

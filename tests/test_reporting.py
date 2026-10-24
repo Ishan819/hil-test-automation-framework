@@ -40,3 +40,20 @@ def test_statistics_count_failed_and_skipped_steps():
         "passed_steps": 2, "failed_steps": 1, "skipped_steps": 1,
     }
     assert report.duration_ms >= sum(case.duration_ms for case in report.results) - 0.01
+
+
+def test_failure_categories_follow_exception_types():
+    suite = Suite("categories", {}, [
+        HilTestCase("connection", [
+            {"action": "set_connection", "connected": False}, {"action": "expect_heartbeat"},
+        ]),
+        HilTestCase("assertion", [{"action": "expect_temperature_below", "limit_c": 10}]),
+        HilTestCase("invalid", [{"action": "unsupported"}]),
+        HilTestCase("healthy", [{"action": "expect_heartbeat"}]),
+    ])
+    report = run_suite(suite)
+    assert [case.failure_category for case in report.results] == [
+        "simulated_connection_failure", "assertion_failure", "invalid_test_configuration", None,
+    ]
+    for case in report.results:
+        assert case.steps[-1].failure_category == case.failure_category

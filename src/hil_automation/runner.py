@@ -9,6 +9,10 @@ from .bench import Bench, SimulatedBench
 from .config import Suite
 
 
+class SimulatedConnectionFailure(AssertionError):
+    """A heartbeat check failed on the simulated bench."""
+
+
 @dataclass
 class StepResult:
     index: int
@@ -16,6 +20,7 @@ class StepResult:
     status: str
     details: str
     duration_ms: float = 0.0
+    failure_category: str | None = None
 
 
 @dataclass
@@ -25,6 +30,7 @@ class CaseResult:
     duration_ms: float
     details: str
     steps: list[StepResult] = field(default_factory=list)
+    failure_category: str | None = None
 
 
 @dataclass
@@ -86,7 +92,7 @@ def execute_step(bench: Bench, step: dict) -> None:
         bench.set_connected(step["connected"])
     elif action == "expect_heartbeat":
         if not bench.heartbeat_ok():
-            raise AssertionError("Device heartbeat not detected; expected an active connection")
+            raise SimulatedConnectionFailure("Device heartbeat not detected; expected an active connection")
     else:
         raise ValueError(f"Unsupported action: {action}")
 
@@ -109,6 +115,7 @@ def run_suite(suite: Suite) -> RunReport:
         started = perf_counter()
         status, details = "passed", "All steps passed"
         steps: list[StepResult] = []
+        failure_category = None
         for index, step in enumerate(test.steps, start=1):
             if status == "failed":
                 steps.append(StepResult(
@@ -121,10 +128,16 @@ def run_suite(suite: Suite) -> RunReport:
                 steps.append(StepResult(index, step["action"], "passed", "Step passed"))
             except (AssertionError, ValueError) as exc:
                 steps.append(StepResult(index, step["action"], "failed", str(exc)))
+                failure_category = (
+                    "simulated_connection_failure" if isinstance(exc, SimulatedConnectionFailure)
+                    else "assertion_failure" if isinstance(exc, AssertionError)
+                    else "invalid_test_configuration"
+                )
+                steps[-1].failure_category = failure_category
                 status, details = "failed", f"Step {index}: {exc}"
             steps[-1].duration_ms = round((perf_counter() - step_started) * 1000, 3)
         results.append(
-            CaseResult(test.name, status, round((perf_counter() - started) * 1000, 3), details, steps)
+            CaseResult(test.name, status, round((perf_counter() - started) * 1000, 3), details, steps, failure_category)
         )
     passed = sum(result.status == "passed" for result in results)
     return RunReport(
