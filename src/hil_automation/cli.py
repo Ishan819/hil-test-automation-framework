@@ -1,10 +1,10 @@
 """Command-line entry point for running suites and saving JSON reports."""
 import argparse
-import json
 import sys
 from pathlib import Path
 
 from .config import Suite, load_suite
+from .reporting import write_json_report
 from .runner import run_suite
 
 
@@ -37,8 +37,7 @@ def main() -> int:
             suite = Suite(suite.name, suite.bench, selected)
         result = run_suite(suite)
         output = Path(args.report)
-        output.parent.mkdir(parents=True, exist_ok=True)
-        output.write_text(json.dumps(result.to_dict(), indent=2) + "\n", encoding="utf-8")
+        write_json_report(result, output)
     except (ValueError, OSError) as exc:
         print(f"Error: {exc}", file=sys.stderr)
         return 2

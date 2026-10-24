@@ -74,3 +74,36 @@ def test_action_statistics_exclude_unexecuted_steps():
     assert sum(item["executed"] for item in report["action_statistics"].values()) == (
         report["statistics"]["executed_steps"]
     )
+
+
+def test_atomic_json_replacement_and_cleanup(tmp_path, monkeypatch):
+    import json
+    import os
+    import pytest
+    from hil_automation import reporting
+
+    destination = tmp_path / "report.json"
+    destination.write_text("previous", encoding="utf-8")
+    report = run_suite(Suite("atomic", {}, []))
+    replace = os.replace
+
+    def verify_replace(source, target):
+        assert destination.read_text() == "previous"
+        assert source.parent == destination.parent
+        assert json.loads(source.read_text())["suite"] == "atomic"
+        replace(source, target)
+
+    monkeypatch.setattr(reporting.os, "replace", verify_replace)
+    reporting.write_json_report(report, destination)
+    assert json.loads(destination.read_text())["suite"] == "atomic"
+    assert list(tmp_path.iterdir()) == [destination]
+
+    def failed_replace(source, target):
+        raise PermissionError("replacement denied")
+
+    monkeypatch.setattr(reporting.os, "replace", failed_replace)
+    original = destination.read_text()
+    with pytest.raises(PermissionError, match="replacement denied"):
+        reporting.write_json_report(report, destination)
+    assert destination.read_text() == original
+    assert list(tmp_path.iterdir()) == [destination]
