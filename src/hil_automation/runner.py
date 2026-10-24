@@ -2,6 +2,7 @@
 from dataclasses import asdict, dataclass, field
 from datetime import datetime, timezone
 from time import perf_counter
+from uuid import uuid4
 
 from .bench import Bench, SimulatedBench
 from .config import Suite
@@ -33,6 +34,7 @@ class RunReport:
     failed: int
     results: list[CaseResult]
     finished_at: str = ""
+    run_id: str = field(default_factory=lambda: str(uuid4()))
 
     def to_dict(self) -> dict:
         return asdict(self)

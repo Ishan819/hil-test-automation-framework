@@ -79,3 +79,13 @@ def test_suite_timestamps_are_ordered_timezone_aware_utc():
     assert before <= started <= finished <= after
     assert started.utcoffset().total_seconds() == 0
     assert finished.utcoffset().total_seconds() == 0
+
+
+def test_each_run_has_a_unique_uuid():
+    from uuid import UUID
+
+    suite = Suite("repeat", {}, [HilTestCase("healthy", [{"action": "expect_heartbeat"}])])
+    first, second = run_suite(suite), run_suite(suite)
+    assert UUID(first.run_id).version == 4
+    assert first.run_id != second.run_id
+    assert first.to_dict()["run_id"] == first.run_id

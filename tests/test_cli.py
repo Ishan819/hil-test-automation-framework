@@ -195,7 +195,7 @@ def test_filtered_cli_report_compatibility(tmp_path, scenario, name, status, exi
     assert finished.returncode == exit_code, finished.stderr
     assert finished.stderr == ""
     data = json.loads(report.read_text())
-    assert set(data) == {"suite", "started_at", "passed", "failed", "results", "finished_at"}
+    assert set(data) == {"suite", "started_at", "passed", "failed", "results", "finished_at", "run_id"}
     assert data["suite"] == ("simulated-recovery" if exit_code == 0 else "simulated-faults")
     assert (data["passed"], data["failed"]) == ((1, 0) if exit_code == 0 else (0, 1))
     assert len(data["results"]) == 1
