@@ -13,6 +13,7 @@ class StepResult:
     action: str
     status: str
     details: str
+    duration_ms: float = 0.0
 
 
 @dataclass
@@ -86,12 +87,14 @@ def run_suite(suite: Suite) -> RunReport:
                     index, step["action"], "skipped", "Earlier step failed",
                 ))
                 continue
+            step_started = perf_counter()
             try:
                 execute_step(bench, step)
                 steps.append(StepResult(index, step["action"], "passed", "Step passed"))
             except (AssertionError, ValueError) as exc:
                 steps.append(StepResult(index, step["action"], "failed", str(exc)))
                 status, details = "failed", f"Step {index}: {exc}"
+            steps[-1].duration_ms = round((perf_counter() - step_started) * 1000, 3)
         results.append(
             CaseResult(test.name, status, round((perf_counter() - started) * 1000, 3), details, steps)
         )

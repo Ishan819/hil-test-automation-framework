@@ -11,7 +11,7 @@ def test_step_model_and_independent_case_defaults():
     first.steps.append(step)
     assert second.steps == []
     assert asdict(first)["steps"] == [{
-        "index": 1, "action": "expect_heartbeat", "status": "passed", "details": "Step passed",
+        "index": 1, "action": "expect_heartbeat", "status": "passed", "details": "Step passed", "duration_ms": 0.0,
     }]
 
 
@@ -54,3 +54,15 @@ def test_later_steps_are_skipped_without_execution(monkeypatch):
     assert calls == ["expect_heartbeat"]
     assert [step.status for step in case.steps] == ["failed", "skipped", "skipped"]
     assert case.steps[1].details == "Earlier step failed"
+
+
+def test_step_timings_use_monotonic_timer_and_skips_take_zero(monkeypatch):
+    from hil_automation import runner
+
+    ticks = iter([10, 11, 11.125, 12])
+    monkeypatch.setattr(runner, "perf_counter", lambda: next(ticks))
+    case = run_suite(Suite("timing", {"connected": False}, [HilTestCase("lost", [
+        {"action": "expect_heartbeat"}, {"action": "expect_heartbeat"},
+    ])])).results[0]
+    assert [step.duration_ms for step in case.steps] == [125, 0]
+    assert case.duration_ms == 2000
