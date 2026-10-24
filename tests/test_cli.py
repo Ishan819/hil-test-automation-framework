@@ -300,3 +300,17 @@ def test_scenario_report_statistics_match_results(tmp_path, scenario, passed, fa
     assert stats["executed_steps"] == sum(step["status"] != "skipped" for step in steps)
     assert sum(item["executed"] for item in data["action_statistics"].values()) == stats["executed_steps"]
     assert data["metadata"]["started_at"] == data["started_at"]
+
+
+def test_verbose_cli_displays_step_outcomes(tmp_path):
+    output = tmp_path / "verbose.json"
+    finished = subprocess.run(
+        [sys.executable, "-m", "hil_automation.cli",
+         str(ROOT / "scenarios" / "faults.yaml"), "--verbose", "--report", str(output)],
+        capture_output=True, text=True,
+    )
+    assert finished.returncode == 1
+    assert "Step 1: set_voltage [PASSED]" in finished.stdout
+    assert "Step 3: expect_temperature_below [FAILED]" in finished.stdout
+    assert "ms - Temperature 95.0" in finished.stdout
+    assert "0 passed, 2 failed" in finished.stdout
