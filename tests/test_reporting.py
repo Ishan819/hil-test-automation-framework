@@ -103,7 +103,31 @@ def test_atomic_json_replacement_and_cleanup(tmp_path, monkeypatch):
 
     monkeypatch.setattr(reporting.os, "replace", failed_replace)
     original = destination.read_text()
-    with pytest.raises(PermissionError, match="replacement denied"):
+    with pytest.raises(reporting.ReportError, match="replacement denied"):
         reporting.write_json_report(report, destination)
     assert destination.read_text() == original
     assert list(tmp_path.iterdir()) == [destination]
+
+
+def test_serialization_failure_preserves_existing_file(tmp_path, monkeypatch):
+    import pytest
+    from hil_automation.reporting import ReportError, write_json_report
+
+    report = run_suite(Suite("serialize", {}, []))
+    monkeypatch.setattr(report, "to_dict", lambda: {"invalid": object()})
+    destination = tmp_path / "result.json"
+    destination.write_text("previous", encoding="utf-8")
+    with pytest.raises(ReportError, match="Cannot serialize JSON report"):
+        write_json_report(report, destination)
+    assert destination.read_text() == "previous"
+    assert list(tmp_path.iterdir()) == [destination]
+
+
+def test_invalid_output_parent_has_clear_error(tmp_path):
+    import pytest
+    from hil_automation.reporting import ReportError, write_json_report
+
+    parent = tmp_path / "file"
+    parent.write_text("occupied", encoding="utf-8")
+    with pytest.raises(ReportError, match="Cannot write JSON report"):
+        write_json_report(run_suite(Suite("path", {}, [])), parent / "report.json")

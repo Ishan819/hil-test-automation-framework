@@ -265,3 +265,15 @@ def test_cli_serializes_step_tracking(tmp_path):
     assert data["results"][0]["steps"][2]["index"] == 3
     assert data["finished_at"] >= data["started_at"]
     assert data["run_id"]
+
+
+def test_cli_report_error_returns_two_without_traceback(tmp_path):
+    finished = subprocess.run(
+        [sys.executable, "-m", "hil_automation.cli",
+         str(ROOT / "scenarios" / "smoke.yaml"), "--report", str(tmp_path)],
+        capture_output=True, text=True,
+    )
+    assert finished.returncode == 2
+    assert "Error: Cannot write JSON report" in finished.stderr
+    assert "Traceback" not in finished.stderr
+    assert finished.stdout == ""

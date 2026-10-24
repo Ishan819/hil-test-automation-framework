@@ -7,6 +7,10 @@ import tempfile
 from .runner import RunReport
 
 
+class ReportError(ValueError):
+    """A report could not be serialized or saved."""
+
+
 def _atomic_write(path: str | Path, content: str) -> None:
     destination = Path(path)
     destination.parent.mkdir(parents=True, exist_ok=True)
@@ -25,5 +29,11 @@ def _atomic_write(path: str | Path, content: str) -> None:
 
 
 def write_json_report(report: RunReport, path: str | Path) -> None:
-    content = json.dumps(report.to_dict(), indent=2, allow_nan=False) + "\n"
-    _atomic_write(path, content)
+    try:
+        content = json.dumps(report.to_dict(), indent=2, allow_nan=False) + "\n"
+    except (TypeError, ValueError, OverflowError) as exc:
+        raise ReportError(f"Cannot serialize JSON report: {exc}") from exc
+    try:
+        _atomic_write(path, content)
+    except (OSError, ValueError) as exc:
+        raise ReportError(f"Cannot write JSON report to {str(path)!r}: {exc}") from exc
