@@ -132,3 +132,27 @@ def test_fail_fast_marks_later_cases_and_steps_skipped(monkeypatch):
     assert report.results[1].status == "skipped"
     assert report.results[1].steps[0].status == "skipped"
     assert report.results[1].duration_ms == report.results[1].steps[0].duration_ms == 0
+
+
+def test_fail_fast_does_not_stop_passing_suite_or_change_default():
+    suite = Suite("default", {}, [
+        HilTestCase("failure", [{"action": "expect_temperature_below", "limit_c": 0}]),
+        HilTestCase("healthy", [{"action": "expect_heartbeat"}]),
+    ])
+    ordinary = run_suite(suite)
+    assert (ordinary.passed, ordinary.failed, ordinary.skipped) == (1, 1, 0)
+    passing = run_suite(Suite("healthy", {}, [suite.tests[1], suite.tests[1]]), fail_fast=True)
+    assert (passing.passed, passing.failed, passing.skipped) == (2, 0, 0)
+
+
+def test_fail_fast_statistics_include_unexecuted_cases():
+    report = run_suite(Suite("statistics", {}, [
+        HilTestCase("failure", [{"action": "expect_temperature_below", "limit_c": 0}]),
+        HilTestCase("later", [{"action": "expect_heartbeat"}, {"action": "expect_heartbeat"}]),
+    ]), fail_fast=True).to_dict()
+    stats = report["statistics"]
+    assert (stats["total_cases"], stats["failed_cases"], stats["skipped_cases"]) == (2, 1, 1)
+    assert (stats["executed_steps"], stats["skipped_steps"]) == (1, 2)
+    assert report["action_statistics"] == {
+        "expect_temperature_below": {"executed": 1, "passed": 0, "failed": 1},
+    }

@@ -343,3 +343,35 @@ def test_verbose_and_quiet_are_mutually_exclusive(tmp_path):
     assert finished.returncode == 2
     assert "not allowed with argument" in finished.stderr
     assert not list(tmp_path.iterdir())
+
+
+@pytest.mark.parametrize("mode", ["--verbose", "--quiet"])
+def test_cli_fail_fast_report_and_exit_code(tmp_path, mode):
+    output = tmp_path / "fast.json"
+    finished = subprocess.run(
+        [sys.executable, "-m", "hil_automation.cli",
+         str(ROOT / "scenarios" / "faults.yaml"), "--fail-fast", mode, "--report", str(output)],
+        capture_output=True, text=True,
+    )
+    assert finished.returncode == 1, finished.stderr
+    data = json.loads(output.read_text())
+    assert (data["passed"], data["failed"], data["skipped"]) == (0, 1, 1)
+    assert [case["status"] for case in data["results"]] == ["failed", "skipped"]
+    assert all(step["status"] == "skipped" for step in data["results"][1]["steps"])
+    assert "0 passed, 1 failed, 1 skipped" in finished.stdout
+    if mode == "--verbose":
+        assert "expect_heartbeat [SKIPPED] 0.000 ms" in finished.stdout
+
+
+def test_filtered_case_with_fail_fast_runs_only_selection(tmp_path):
+    output = tmp_path / "selected-fast.json"
+    finished = subprocess.run(
+        [sys.executable, "-m", "hil_automation.cli",
+         str(ROOT / "scenarios" / "recovery.yaml"), "--fail-fast",
+         "--case", "fresh_case_starts_healthy", "--report", str(output)],
+        capture_output=True, text=True,
+    )
+    assert finished.returncode == 0
+    data = json.loads(output.read_text())
+    assert (data["passed"], data["failed"], data["skipped"]) == (1, 0, 0)
+    assert len(data["results"]) == 1
