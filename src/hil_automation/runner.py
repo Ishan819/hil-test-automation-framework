@@ -35,6 +35,7 @@ class RunReport:
     results: list[CaseResult]
     finished_at: str = ""
     run_id: str = field(default_factory=lambda: str(uuid4()))
+    schema_version: str = "1.0"
 
     def to_dict(self) -> dict:
         return asdict(self)
