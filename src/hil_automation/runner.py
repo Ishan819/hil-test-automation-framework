@@ -32,6 +32,7 @@ class RunReport:
     passed: int
     failed: int
     results: list[CaseResult]
+    finished_at: str = ""
 
     def to_dict(self) -> dict:
         return asdict(self)
@@ -99,4 +100,7 @@ def run_suite(suite: Suite) -> RunReport:
             CaseResult(test.name, status, round((perf_counter() - started) * 1000, 3), details, steps)
         )
     passed = sum(result.status == "passed" for result in results)
-    return RunReport(suite.name, started_at, passed, len(results) - passed, results)
+    return RunReport(
+        suite.name, started_at, passed, len(results) - passed, results,
+        finished_at=datetime.now(timezone.utc).isoformat(),
+    )

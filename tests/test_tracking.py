@@ -66,3 +66,16 @@ def test_step_timings_use_monotonic_timer_and_skips_take_zero(monkeypatch):
     ])])).results[0]
     assert [step.duration_ms for step in case.steps] == [125, 0]
     assert case.duration_ms == 2000
+
+
+def test_suite_timestamps_are_ordered_timezone_aware_utc():
+    from datetime import datetime, timezone
+
+    before = datetime.now(timezone.utc)
+    report = run_suite(Suite("empty", {}, []))
+    after = datetime.now(timezone.utc)
+    started = datetime.fromisoformat(report.started_at)
+    finished = datetime.fromisoformat(report.finished_at)
+    assert before <= started <= finished <= after
+    assert started.utcoffset().total_seconds() == 0
+    assert finished.utcoffset().total_seconds() == 0
