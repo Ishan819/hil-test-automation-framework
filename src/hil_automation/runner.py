@@ -37,6 +37,7 @@ class RunReport:
     finished_at: str = ""
     run_id: str = field(default_factory=lambda: str(uuid4()))
     schema_version: str = "1.0"
+    duration_ms: float = 0.0
 
     def to_dict(self) -> dict:
         payload = asdict(self)
@@ -46,6 +47,19 @@ class RunReport:
             "machine": platform.machine(),
             "started_at": self.started_at,
             "finished_at": self.finished_at,
+        }
+        steps = [step for case in self.results for step in case.steps]
+        payload["statistics"] = {
+            "total_cases": len(self.results),
+            "passed_cases": self.passed,
+            "failed_cases": self.failed,
+            "skipped_cases": sum(case.status == "skipped" for case in self.results),
+            "duration_ms": self.duration_ms,
+            "total_steps": len(steps),
+            "executed_steps": sum(step.status != "skipped" for step in steps),
+            "passed_steps": sum(step.status == "passed" for step in steps),
+            "failed_steps": sum(step.status == "failed" for step in steps),
+            "skipped_steps": sum(step.status == "skipped" for step in steps),
         }
         return payload
 
@@ -87,6 +101,7 @@ def make_bench(config: dict) -> SimulatedBench:
 
 def run_suite(suite: Suite) -> RunReport:
     """Give each test a fresh bench so tests cannot leak state into one another."""
+    suite_started = perf_counter()
     started_at = datetime.now(timezone.utc).isoformat()
     results: list[CaseResult] = []
     for test in suite.tests:
@@ -115,4 +130,5 @@ def run_suite(suite: Suite) -> RunReport:
     return RunReport(
         suite.name, started_at, passed, len(results) - passed, results,
         finished_at=datetime.now(timezone.utc).isoformat(),
+        duration_ms=round((perf_counter() - suite_started) * 1000, 3),
     )

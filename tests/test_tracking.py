@@ -59,7 +59,7 @@ def test_later_steps_are_skipped_without_execution(monkeypatch):
 def test_step_timings_use_monotonic_timer_and_skips_take_zero(monkeypatch):
     from hil_automation import runner
 
-    ticks = iter([10, 11, 11.125, 12])
+    ticks = iter([9, 10, 11, 11.125, 12, 13])
     monkeypatch.setattr(runner, "perf_counter", lambda: next(ticks))
     case = run_suite(Suite("timing", {"connected": False}, [HilTestCase("lost", [
         {"action": "expect_heartbeat"}, {"action": "expect_heartbeat"},

@@ -24,3 +24,19 @@ def test_metadata_contains_only_allowlisted_runtime_information(monkeypatch):
         "finished_at": data["finished_at"],
     }
     assert "do-not-include" not in str(data)
+
+
+def test_statistics_count_failed_and_skipped_steps():
+    report = run_suite(Suite("stats", {}, [
+        HilTestCase("fault", [
+            {"action": "set_connection", "connected": False},
+            {"action": "expect_heartbeat"}, {"action": "expect_heartbeat"},
+        ]),
+        HilTestCase("healthy", [{"action": "expect_heartbeat"}]),
+    ]))
+    assert report.to_dict()["statistics"] == {
+        "total_cases": 2, "passed_cases": 1, "failed_cases": 1, "skipped_cases": 0,
+        "duration_ms": report.duration_ms, "total_steps": 4, "executed_steps": 3,
+        "passed_steps": 2, "failed_steps": 1, "skipped_steps": 1,
+    }
+    assert report.duration_ms >= sum(case.duration_ms for case in report.results) - 0.01
