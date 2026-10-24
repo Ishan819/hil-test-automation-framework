@@ -277,3 +277,26 @@ def test_cli_report_error_returns_two_without_traceback(tmp_path):
     assert "Error: Cannot write JSON report" in finished.stderr
     assert "Traceback" not in finished.stderr
     assert finished.stdout == ""
+
+
+@pytest.mark.parametrize("scenario, passed, failed", [
+    ("smoke", 3, 0), ("recovery", 3, 0), ("faults", 0, 2), ("failure_demo", 0, 2),
+])
+def test_scenario_report_statistics_match_results(tmp_path, scenario, passed, failed):
+    output = tmp_path / f"{scenario}.json"
+    finished = subprocess.run(
+        [sys.executable, "-m", "hil_automation.cli",
+         str(ROOT / "scenarios" / f"{scenario}.yaml"), "--report", str(output)],
+        capture_output=True, text=True,
+    )
+    assert finished.returncode == (1 if failed else 0), finished.stderr
+    data = json.loads(output.read_text())
+    assert data["schema_version"] == "1.0"
+    stats = data["statistics"]
+    assert (stats["passed_cases"], stats["failed_cases"]) == (passed, failed)
+    assert stats["total_cases"] == len(data["results"]) == passed + failed
+    steps = [step for case in data["results"] for step in case["steps"]]
+    assert stats["total_steps"] == len(steps)
+    assert stats["executed_steps"] == sum(step["status"] != "skipped" for step in steps)
+    assert sum(item["executed"] for item in data["action_statistics"].values()) == stats["executed_steps"]
+    assert data["metadata"]["started_at"] == data["started_at"]

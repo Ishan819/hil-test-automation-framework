@@ -131,3 +131,38 @@ def test_invalid_output_parent_has_clear_error(tmp_path):
     parent.write_text("occupied", encoding="utf-8")
     with pytest.raises(ReportError, match="Cannot write JSON report"):
         write_json_report(run_suite(Suite("path", {}, [])), parent / "report.json")
+
+
+def test_empty_report_statistics_and_action_totals():
+    data = run_suite(Suite("empty", {}, [])).to_dict()
+    assert data["action_statistics"] == {}
+    assert all(value == 0 for key, value in data["statistics"].items() if key != "duration_ms")
+    assert data["duration_ms"] >= 0
+
+
+def test_temporary_file_permission_error_preserves_report(tmp_path, monkeypatch):
+    import pytest
+    from hil_automation import reporting
+
+    destination = tmp_path / "report.json"
+    destination.write_text("previous", encoding="utf-8")
+
+    def denied(**kwargs):
+        raise PermissionError("temporary file denied")
+
+    monkeypatch.setattr(reporting.tempfile, "NamedTemporaryFile", denied)
+    with pytest.raises(reporting.ReportError, match="temporary file denied"):
+        reporting.write_json_report(run_suite(Suite("denied", {}, [])), destination)
+    assert destination.read_text() == "previous"
+    assert list(tmp_path.iterdir()) == [destination]
+
+
+def test_json_rejects_nonfinite_report_values(tmp_path):
+    import pytest
+    from hil_automation.reporting import ReportError, write_json_report
+
+    report = run_suite(Suite("finite", {}, []))
+    report.duration_ms = float("nan")
+    with pytest.raises(ReportError, match="Cannot serialize JSON report"):
+        write_json_report(report, tmp_path / "invalid.json")
+    assert list(tmp_path.iterdir()) == []
