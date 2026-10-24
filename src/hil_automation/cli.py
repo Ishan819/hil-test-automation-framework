@@ -18,7 +18,9 @@ def main() -> int:
         help="List case names without executing tests or writing a report",
     )
     selection.add_argument("--case", metavar="NAME", help="Run only the named case")
-    parser.add_argument("--verbose", action="store_true", help="Show step outcomes and timings")
+    output_mode = parser.add_mutually_exclusive_group()
+    output_mode.add_argument("--verbose", action="store_true", help="Show step outcomes and timings")
+    output_mode.add_argument("--quiet", action="store_true", help="Print only the results summary")
     args = parser.parse_args()
 
     try:
@@ -43,17 +45,19 @@ def main() -> int:
         print(f"Error: {exc}", file=sys.stderr)
         return 2
 
-    print(f"Suite: {result.suite}")
-    for case in result.results:
-        print(f"  [{case.status.upper():6}] {case.name} - {case.details}")
-        if args.verbose:
-            for step in case.steps:
-                print(
-                    f"    Step {step.index}: {step.action} [{step.status.upper()}] "
-                    f"{step.duration_ms:.3f} ms - {step.details}"
-                )
+    if not args.quiet:
+        print(f"Suite: {result.suite}")
+        for case in result.results:
+            print(f"  [{case.status.upper():6}] {case.name} - {case.details}")
+            if args.verbose:
+                for step in case.steps:
+                    print(
+                        f"    Step {step.index}: {step.action} [{step.status.upper()}] "
+                        f"{step.duration_ms:.3f} ms - {step.details}"
+                    )
     print(f"Results: {result.passed} passed, {result.failed} failed")
-    print(f"JSON report: {output}")
+    if not args.quiet:
+        print(f"JSON report: {output}")
     return 1 if result.failed else 0
 
 

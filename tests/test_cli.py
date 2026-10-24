@@ -314,3 +314,32 @@ def test_verbose_cli_displays_step_outcomes(tmp_path):
     assert "Step 3: expect_temperature_below [FAILED]" in finished.stdout
     assert "ms - Temperature 95.0" in finished.stdout
     assert "0 passed, 2 failed" in finished.stdout
+
+
+@pytest.mark.parametrize("scenario, summary, code", [
+    ("smoke", "Results: 3 passed, 0 failed\n", 0),
+    ("faults", "Results: 0 passed, 2 failed\n", 1),
+])
+def test_quiet_cli_prints_only_summary(tmp_path, scenario, summary, code):
+    output = tmp_path / "quiet.json"
+    finished = subprocess.run(
+        [sys.executable, "-m", "hil_automation.cli",
+         str(ROOT / "scenarios" / f"{scenario}.yaml"), "--quiet", "--report", str(output)],
+        capture_output=True, text=True,
+    )
+    assert finished.returncode == code
+    assert finished.stdout == summary
+    assert finished.stderr == ""
+    assert json.loads(output.read_text())["results"]
+
+
+def test_verbose_and_quiet_are_mutually_exclusive(tmp_path):
+    finished = subprocess.run(
+        [sys.executable, "-m", "hil_automation.cli",
+         str(ROOT / "scenarios" / "smoke.yaml"), "--verbose", "--quiet",
+         "--report", str(tmp_path / "unused.json")],
+        capture_output=True, text=True,
+    )
+    assert finished.returncode == 2
+    assert "not allowed with argument" in finished.stderr
+    assert not list(tmp_path.iterdir())
