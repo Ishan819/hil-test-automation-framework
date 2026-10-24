@@ -13,3 +13,13 @@ def test_step_model_and_independent_case_defaults():
     assert asdict(first)["steps"] == [{
         "index": 1, "action": "expect_heartbeat", "status": "passed", "details": "Step passed",
     }]
+
+
+def test_successful_steps_are_recorded_in_order():
+    report = run_suite(Suite("tracking", {}, [HilTestCase("healthy", [
+        {"action": "set_voltage", "value": 5}, {"action": "expect_heartbeat"},
+    ])]))
+    assert [(step.index, step.action, step.status) for step in report.results[0].steps] == [
+        (1, "set_voltage", "passed"), (2, "expect_heartbeat", "passed"),
+    ]
+    assert report.results[0].details == "All steps passed"

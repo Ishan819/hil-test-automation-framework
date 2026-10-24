@@ -79,14 +79,16 @@ def run_suite(suite: Suite) -> RunReport:
         bench = make_bench(suite.bench)
         started = perf_counter()
         status, details = "passed", "All steps passed"
+        steps: list[StepResult] = []
         for index, step in enumerate(test.steps, start=1):
             try:
                 execute_step(bench, step)
+                steps.append(StepResult(index, step["action"], "passed", "Step passed"))
             except (AssertionError, ValueError) as exc:
                 status, details = "failed", f"Step {index}: {exc}"
                 break
         results.append(
-            CaseResult(test.name, status, round((perf_counter() - started) * 1000, 3), details)
+            CaseResult(test.name, status, round((perf_counter() - started) * 1000, 3), details, steps)
         )
     passed = sum(result.status == "passed" for result in results)
     return RunReport(suite.name, started_at, passed, len(results) - passed, results)
