@@ -34,3 +34,23 @@ def test_failed_step_keeps_diagnostic_and_case_failure():
     assert case.details == f"Step 2: {case.steps[1].details}"
     assert "heartbeat" in case.steps[1].details
     assert (report.passed, report.failed) == (0, 1)
+
+
+def test_later_steps_are_skipped_without_execution(monkeypatch):
+    from hil_automation import runner
+
+    calls = []
+    execute = runner.execute_step
+
+    def record(bench, step):
+        calls.append(step["action"])
+        execute(bench, step)
+
+    monkeypatch.setattr(runner, "execute_step", record)
+    case = run_suite(Suite("tracking", {"connected": False}, [HilTestCase("lost", [
+        {"action": "expect_heartbeat"}, {"action": "set_connection", "connected": True},
+        {"action": "expect_heartbeat"},
+    ])])).results[0]
+    assert calls == ["expect_heartbeat"]
+    assert [step.status for step in case.steps] == ["failed", "skipped", "skipped"]
+    assert case.steps[1].details == "Earlier step failed"

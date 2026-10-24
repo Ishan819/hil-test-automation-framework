@@ -81,13 +81,17 @@ def run_suite(suite: Suite) -> RunReport:
         status, details = "passed", "All steps passed"
         steps: list[StepResult] = []
         for index, step in enumerate(test.steps, start=1):
+            if status == "failed":
+                steps.append(StepResult(
+                    index, step["action"], "skipped", "Earlier step failed",
+                ))
+                continue
             try:
                 execute_step(bench, step)
                 steps.append(StepResult(index, step["action"], "passed", "Step passed"))
             except (AssertionError, ValueError) as exc:
                 steps.append(StepResult(index, step["action"], "failed", str(exc)))
                 status, details = "failed", f"Step {index}: {exc}"
-                break
         results.append(
             CaseResult(test.name, status, round((perf_counter() - started) * 1000, 3), details, steps)
         )
