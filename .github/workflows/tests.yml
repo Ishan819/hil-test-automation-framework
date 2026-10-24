@@ -9,7 +9,7 @@ jobs:
     runs-on: ubuntu-latest
     strategy:
       matrix:
-        python-version: ['3.11', '3.12']
+        python-version: ['3.10', '3.11', '3.12']
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -23,3 +23,5 @@ jobs:
         run: python -m pytest -q
       - name: Run sample suite
         run: hil-run scenarios/smoke.yaml
+      - name: Run recovery suite with JUnit report
+        run: hil-run scenarios/recovery.yaml --report-format junit --report reports/recovery.xml
