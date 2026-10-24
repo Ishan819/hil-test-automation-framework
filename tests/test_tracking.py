@@ -110,3 +110,25 @@ def test_tracking_is_independent_across_cases_and_repeated_runs():
     first.results[0].steps.clear()
     assert len(second.results[0].steps) == 3
     assert len(suite.tests[0].steps) == 3
+
+
+def test_fail_fast_marks_later_cases_and_steps_skipped(monkeypatch):
+    from hil_automation import runner
+
+    calls = []
+    make = runner.make_bench
+
+    def count(config):
+        calls.append(config)
+        return make(config)
+
+    monkeypatch.setattr(runner, "make_bench", count)
+    report = run_suite(Suite("fast", {}, [
+        HilTestCase("fault", [{"action": "expect_temperature_below", "limit_c": 0}]),
+        HilTestCase("later", [{"action": "expect_heartbeat"}]),
+    ]), fail_fast=True)
+    assert len(calls) == 1
+    assert (report.passed, report.failed, report.skipped) == (0, 1, 1)
+    assert report.results[1].status == "skipped"
+    assert report.results[1].steps[0].status == "skipped"
+    assert report.results[1].duration_ms == report.results[1].steps[0].duration_ms == 0

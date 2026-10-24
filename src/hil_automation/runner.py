@@ -44,6 +44,7 @@ class RunReport:
     run_id: str = field(default_factory=lambda: str(uuid4()))
     schema_version: str = "1.0"
     duration_ms: float = 0.0
+    skipped: int = 0
 
     def to_dict(self) -> dict:
         payload = asdict(self)
@@ -113,12 +114,20 @@ def make_bench(config: dict) -> SimulatedBench:
     )
 
 
-def run_suite(suite: Suite) -> RunReport:
+def run_suite(suite: Suite, *, fail_fast: bool = False) -> RunReport:
     """Give each test a fresh bench so tests cannot leak state into one another."""
     suite_started = perf_counter()
     started_at = datetime.now(timezone.utc).isoformat()
     results: list[CaseResult] = []
+    stopped = False
     for test in suite.tests:
+        if stopped:
+            results.append(CaseResult(
+                test.name, "skipped", 0.0, "Not executed after earlier case failed",
+                [StepResult(index, step["action"], "skipped", "Fail-fast stopped execution")
+                 for index, step in enumerate(test.steps, start=1)],
+            ))
+            continue
         bench = make_bench(suite.bench)
         started = perf_counter()
         status, details = "passed", "All steps passed"
@@ -147,9 +156,14 @@ def run_suite(suite: Suite) -> RunReport:
         results.append(
             CaseResult(test.name, status, round((perf_counter() - started) * 1000, 3), details, steps, failure_category)
         )
+        if fail_fast and status == "failed":
+            stopped = True
     passed = sum(result.status == "passed" for result in results)
+    failed = sum(result.status == "failed" for result in results)
+    skipped = sum(result.status == "skipped" for result in results)
     return RunReport(
-        suite.name, started_at, passed, len(results) - passed, results,
+        suite.name, started_at, passed, failed, results,
         finished_at=datetime.now(timezone.utc).isoformat(),
         duration_ms=round((perf_counter() - suite_started) * 1000, 3),
+        skipped=skipped,
     )

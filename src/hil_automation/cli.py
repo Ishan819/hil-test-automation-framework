@@ -21,6 +21,9 @@ def main() -> int:
     output_mode = parser.add_mutually_exclusive_group()
     output_mode.add_argument("--verbose", action="store_true", help="Show step outcomes and timings")
     output_mode.add_argument("--quiet", action="store_true", help="Print only the results summary")
+    parser.add_argument(
+        "--fail-fast", action="store_true", help="Stop execution after the first failed case",
+    )
     args = parser.parse_args()
 
     try:
@@ -38,7 +41,7 @@ def main() -> int:
                     f"Unknown test case: {args.case!r}. Available cases: {available}"
                 )
             suite = Suite(suite.name, suite.bench, selected)
-        result = run_suite(suite)
+        result = run_suite(suite, fail_fast=args.fail_fast)
         output = Path(args.report)
         write_json_report(result, output)
     except (ValueError, OSError) as exc:
@@ -55,7 +58,10 @@ def main() -> int:
                         f"    Step {step.index}: {step.action} [{step.status.upper()}] "
                         f"{step.duration_ms:.3f} ms - {step.details}"
                     )
-    print(f"Results: {result.passed} passed, {result.failed} failed")
+    summary = f"Results: {result.passed} passed, {result.failed} failed"
+    if result.skipped:
+        summary += f", {result.skipped} skipped"
+    print(summary)
     if not args.quiet:
         print(f"JSON report: {output}")
     return 1 if result.failed else 0
