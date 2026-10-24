@@ -248,3 +248,20 @@ def test_selection_options_still_validate_yaml(tmp_path, option):
     assert finished.returncode == 2
     assert "bench.type: simulated" in finished.stderr
     assert not report.exists()
+
+
+def test_cli_serializes_step_tracking(tmp_path):
+    report = tmp_path / "tracking.json"
+    finished = subprocess.run(
+        [sys.executable, "-m", "hil_automation.cli",
+         str(ROOT / "scenarios" / "faults.yaml"), "--report", str(report)],
+        capture_output=True, text=True,
+    )
+    assert finished.returncode == 1
+    data = json.loads(report.read_text())
+    assert [step["status"] for step in data["results"][0]["steps"]] == [
+        "passed", "passed", "failed",
+    ]
+    assert data["results"][0]["steps"][2]["index"] == 3
+    assert data["finished_at"] >= data["started_at"]
+    assert data["run_id"]

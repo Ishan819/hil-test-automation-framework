@@ -89,3 +89,24 @@ def test_each_run_has_a_unique_uuid():
     assert UUID(first.run_id).version == 4
     assert first.run_id != second.run_id
     assert first.to_dict()["run_id"] == first.run_id
+
+
+def test_tracking_is_independent_across_cases_and_repeated_runs():
+    suite = Suite("isolation", {}, [
+        HilTestCase("fault", [
+            {"action": "set_connection", "connected": False},
+            {"action": "expect_heartbeat"}, {"action": "set_voltage", "value": 12},
+        ]),
+        HilTestCase("fresh", [{"action": "expect_heartbeat"}]),
+    ])
+    first, second = run_suite(suite), run_suite(suite)
+    for report in (first, second):
+        assert (report.passed, report.failed) == (1, 1)
+        assert [step.status for step in report.results[0].steps] == [
+            "passed", "failed", "skipped",
+        ]
+        assert report.results[1].steps[0].status == "passed"
+        assert all(step.duration_ms >= 0 for case in report.results for step in case.steps)
+    first.results[0].steps.clear()
+    assert len(second.results[0].steps) == 3
+    assert len(suite.tests[0].steps) == 3
