@@ -375,3 +375,75 @@ def test_filtered_case_with_fail_fast_runs_only_selection(tmp_path):
     data = json.loads(output.read_text())
     assert (data["passed"], data["failed"], data["skipped"]) == (1, 0, 0)
     assert len(data["results"]) == 1
+
+
+@pytest.mark.parametrize("scenario, code, flags, cases, failures, skipped", [
+    ("smoke", 0, [], "3", "0", "0"),
+    ("faults", 1, [], "2", "2", "0"),
+    ("faults", 1, ["--fail-fast"], "2", "1", "1"),
+    ("recovery", 0, ["--case", "fresh_case_starts_healthy"], "1", "0", "0"),
+])
+def test_cli_junit_format(tmp_path, scenario, code, flags, cases, failures, skipped):
+    from xml.etree import ElementTree as ET
+
+    output = tmp_path / "report.xml"
+    finished = subprocess.run(
+        [sys.executable, "-m", "hil_automation.cli",
+         str(ROOT / "scenarios" / f"{scenario}.yaml"), "--report-format", "junit",
+         "--report", str(output), *flags], capture_output=True, text=True,
+    )
+    assert finished.returncode == code, finished.stderr
+    root = ET.parse(output).getroot()
+    assert (root.get("tests"), root.get("failures"), root.get("skipped")) == (
+        cases, failures, skipped,
+    )
+    assert f"JUnit XML report: {output}" in finished.stdout
+
+
+def test_cli_junit_default_path(tmp_path):
+    from xml.etree import ElementTree as ET
+
+    finished = subprocess.run(
+        [sys.executable, "-m", "hil_automation.cli",
+         str(ROOT / "scenarios" / "smoke.yaml"), "--report-format", "junit"],
+        cwd=tmp_path, capture_output=True, text=True,
+    )
+    assert finished.returncode == 0, finished.stderr
+    assert ET.parse(tmp_path / "reports" / "latest.xml").getroot().get("tests") == "3"
+    assert not (tmp_path / "reports" / "latest.json").exists()
+
+
+def test_cli_rejects_unknown_report_format(tmp_path):
+    finished = subprocess.run(
+        [sys.executable, "-m", "hil_automation.cli",
+         str(ROOT / "scenarios" / "smoke.yaml"), "--report-format", "csv",
+         "--report", str(tmp_path / "unused.csv")],
+        capture_output=True, text=True,
+    )
+    assert finished.returncode == 2
+    assert "invalid choice" in finished.stderr
+    assert not list(tmp_path.iterdir())
+
+
+def test_cli_help_documents_execution_and_report_options():
+    finished = subprocess.run(
+        [sys.executable, "-m", "hil_automation.cli", "--help"],
+        capture_output=True, text=True,
+    )
+    assert finished.returncode == 0
+    for flag in ("--verbose", "--quiet", "--fail-fast", "--report-format", "--case", "--list-tests"):
+        assert flag in finished.stdout
+    assert "JUnit XML" in finished.stdout
+
+
+def test_listing_with_junit_does_not_write_report(tmp_path):
+    output = tmp_path / "listing.xml"
+    finished = subprocess.run(
+        [sys.executable, "-m", "hil_automation.cli",
+         str(ROOT / "scenarios" / "smoke.yaml"), "--list-tests",
+         "--report-format", "junit", "--report", str(output)],
+        capture_output=True, text=True,
+    )
+    assert finished.returncode == 0
+    assert "power_rail_reaches_five_volts" in finished.stdout
+    assert not output.exists()

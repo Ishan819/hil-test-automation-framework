@@ -4,14 +4,20 @@ import sys
 from pathlib import Path
 
 from .config import Suite, load_suite
-from .reporting import write_json_report
+from .reporting import write_json_report, write_junit_report
 from .runner import run_suite
 
 
 def main() -> int:
     parser = argparse.ArgumentParser(description="Run a simulated HIL test suite")
     parser.add_argument("config", help="Path to a YAML test suite")
-    parser.add_argument("--report", default="reports/latest.json", help="JSON output path")
+    parser.add_argument(
+        "--report", help="Output path (default: reports/latest.json or reports/latest.xml)",
+    )
+    parser.add_argument(
+        "--report-format", choices=("json", "junit"), default="json",
+        help="Report format: json (default) or junit (JUnit XML)",
+    )
     selection = parser.add_mutually_exclusive_group()
     selection.add_argument(
         "--list-tests", action="store_true",
@@ -42,8 +48,12 @@ def main() -> int:
                 )
             suite = Suite(suite.name, suite.bench, selected)
         result = run_suite(suite, fail_fast=args.fail_fast)
-        output = Path(args.report)
-        write_json_report(result, output)
+        suffix = "json" if args.report_format == "json" else "xml"
+        output = Path(args.report) if args.report is not None else Path(f"reports/latest.{suffix}")
+        if args.report_format == "json":
+            write_json_report(result, output)
+        else:
+            write_junit_report(result, output)
     except (ValueError, OSError) as exc:
         print(f"Error: {exc}", file=sys.stderr)
         return 2
@@ -63,7 +73,8 @@ def main() -> int:
         summary += f", {result.skipped} skipped"
     print(summary)
     if not args.quiet:
-        print(f"JSON report: {output}")
+        label = "JSON" if args.report_format == "json" else "JUnit XML"
+        print(f"{label} report: {output}")
     return 1 if result.failed else 0
 
 
