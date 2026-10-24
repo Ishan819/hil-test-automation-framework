@@ -3,6 +3,7 @@ import json
 import os
 from pathlib import Path
 import tempfile
+from xml.etree import ElementTree as ET
 
 from .runner import RunReport
 
@@ -37,3 +38,59 @@ def write_json_report(report: RunReport, path: str | Path) -> None:
         _atomic_write(path, content)
     except (OSError, ValueError) as exc:
         raise ReportError(f"Cannot write JSON report to {str(path)!r}: {exc}") from exc
+
+
+def _xml_text(value: str) -> str:
+    """Replace characters XML 1.0 cannot represent; ElementTree escapes markup."""
+    return "".join(
+        char if (
+            char in "\t\n\r" or "\u0020" <= char <= "\ud7ff"
+            or "\ue000" <= char <= "\ufffd" or "\U00010000" <= char <= "\U0010ffff"
+        ) else "\ufffd"
+        for char in value
+    )
+
+
+def junit_xml(report: RunReport) -> str:
+    """Render one JUnit testsuite; elapsed times use seconds as JUnit expects."""
+    errors = sum(
+        case.status == "failed" and case.failure_category == "invalid_test_configuration"
+        for case in report.results
+    )
+    root = ET.Element("testsuite", {
+        "name": _xml_text(report.suite),
+        "tests": str(len(report.results)),
+        "failures": str(sum(case.status == "failed" for case in report.results) - errors),
+        "errors": str(errors),
+        "skipped": str(sum(case.status == "skipped" for case in report.results)),
+        "time": f"{report.duration_ms / 1000:.6f}",
+        "timestamp": report.started_at,
+        "id": report.run_id,
+    })
+    for case in report.results:
+        element = ET.SubElement(root, "testcase", {
+            "name": _xml_text(case.name),
+            "classname": _xml_text(report.suite),
+            "time": f"{case.duration_ms / 1000:.6f}",
+        })
+        if case.status == "failed":
+            tag = "error" if case.failure_category == "invalid_test_configuration" else "failure"
+            diagnostic = ET.SubElement(element, tag, {
+                "message": _xml_text(case.details),
+                "type": case.failure_category or "assertion_failure",
+            })
+            diagnostic.text = _xml_text(case.details)
+        elif case.status == "skipped":
+            ET.SubElement(element, "skipped", {"message": _xml_text(case.details)})
+    return ET.tostring(root, encoding="unicode", xml_declaration=True) + "\n"
+
+
+def write_junit_report(report: RunReport, path: str | Path) -> None:
+    try:
+        content = junit_xml(report)
+    except (TypeError, ValueError, OverflowError) as exc:
+        raise ReportError(f"Cannot serialize JUnit XML report: {exc}") from exc
+    try:
+        _atomic_write(path, content)
+    except (OSError, ValueError) as exc:
+        raise ReportError(f"Cannot write JUnit XML report to {str(path)!r}: {exc}") from exc
