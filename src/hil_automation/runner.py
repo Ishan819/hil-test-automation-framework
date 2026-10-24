@@ -67,6 +67,14 @@ class RunReport:
             "failed_steps": sum(step.status == "failed" for step in steps),
             "skipped_steps": sum(step.status == "skipped" for step in steps),
         }
+        actions: dict[str, dict[str, int]] = {}
+        for step in steps:
+            if step.status == "skipped":
+                continue
+            counts = actions.setdefault(step.action, {"executed": 0, "passed": 0, "failed": 0})
+            counts["executed"] += 1
+            counts[step.status] += 1
+        payload["action_statistics"] = actions
         return payload
 
 

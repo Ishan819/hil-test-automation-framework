@@ -57,3 +57,20 @@ def test_failure_categories_follow_exception_types():
     ]
     for case in report.results:
         assert case.steps[-1].failure_category == case.failure_category
+
+
+def test_action_statistics_exclude_unexecuted_steps():
+    report = run_suite(Suite("actions", {}, [
+        HilTestCase("fault", [
+            {"action": "expect_heartbeat"},
+            {"action": "set_connection", "connected": False},
+            {"action": "expect_heartbeat"}, {"action": "set_voltage", "value": 5},
+        ]),
+    ])).to_dict()
+    assert report["action_statistics"] == {
+        "expect_heartbeat": {"executed": 2, "passed": 1, "failed": 1},
+        "set_connection": {"executed": 1, "passed": 1, "failed": 0},
+    }
+    assert sum(item["executed"] for item in report["action_statistics"].values()) == (
+        report["statistics"]["executed_steps"]
+    )
