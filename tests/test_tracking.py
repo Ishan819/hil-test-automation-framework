@@ -23,3 +23,14 @@ def test_successful_steps_are_recorded_in_order():
         (1, "set_voltage", "passed"), (2, "expect_heartbeat", "passed"),
     ]
     assert report.results[0].details == "All steps passed"
+
+
+def test_failed_step_keeps_diagnostic_and_case_failure():
+    report = run_suite(Suite("tracking", {}, [HilTestCase("lost", [
+        {"action": "set_connection", "connected": False}, {"action": "expect_heartbeat"},
+    ])]))
+    case = report.results[0]
+    assert [step.status for step in case.steps] == ["passed", "failed"]
+    assert case.details == f"Step 2: {case.steps[1].details}"
+    assert "heartbeat" in case.steps[1].details
+    assert (report.passed, report.failed) == (0, 1)

@@ -85,6 +85,7 @@ def run_suite(suite: Suite) -> RunReport:
                 execute_step(bench, step)
                 steps.append(StepResult(index, step["action"], "passed", "Step passed"))
             except (AssertionError, ValueError) as exc:
+                steps.append(StepResult(index, step["action"], "failed", str(exc)))
                 status, details = "failed", f"Step {index}: {exc}"
                 break
         results.append(
