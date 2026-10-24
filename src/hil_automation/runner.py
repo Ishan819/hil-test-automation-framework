@@ -1,5 +1,5 @@
 """Execute YAML steps against a bench and collect structured results."""
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, field
 from datetime import datetime, timezone
 from time import perf_counter
 
@@ -8,11 +8,20 @@ from .config import Suite
 
 
 @dataclass
+class StepResult:
+    index: int
+    action: str
+    status: str
+    details: str
+
+
+@dataclass
 class CaseResult:
     name: str
     status: str
     duration_ms: float
     details: str
+    steps: list[StepResult] = field(default_factory=list)
 
 
 @dataclass
