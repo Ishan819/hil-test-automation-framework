@@ -13,3 +13,8 @@ reports/
 .DS_Store
 .idea/
 .vscode/
+
+# Generated native builds and downloaded CMake dependencies
+/build/
+/cpp/build/
+cmake-build-*/
