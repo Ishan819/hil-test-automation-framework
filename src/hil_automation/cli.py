@@ -1,21 +1,51 @@
-"""Command-line entry point for running suites and saving JSON reports."""
+"""Run YAML suites with reports or execute a separate native test binary."""
 import argparse
 import sys
 from pathlib import Path
 
 from .config import Suite, load_suite
+from .native import NativeExecutionError, run_native_tests
 from .reporting import write_json_report, write_junit_report
 from .runner import run_suite
 
 
+def _run_native(args: argparse.Namespace) -> int:
+    try:
+        result = run_native_tests(
+            args.native_tests,
+            timeout=args.native_timeout if args.native_timeout is not None else 30.0,
+        )
+    except (NativeExecutionError, ValueError, OSError) as exc:
+        print(f"Error: {exc}", file=sys.stderr)
+        return 2
+    if args.verbose:
+        print(f"Native executable: {result.executable}")
+        print(f"Native duration: {result.duration_ms:.3f} ms")
+    if not args.quiet and result.stdout:
+        print(result.stdout, end="" if result.stdout.endswith("\n") else "\n")
+    if result.stderr:
+        print(result.stderr, end="", file=sys.stderr)
+    status = "passed" if result.exit_code == 0 else "failed"
+    print(f"Native tests: {status} (exit code {result.exit_code})")
+    return 0 if result.exit_code == 0 else 1
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description="Run a simulated HIL test suite")
-    parser.add_argument("config", help="Path to a YAML test suite")
+    parser.add_argument("config", nargs="?", help="Path to a YAML test suite")
+    parser.add_argument(
+        "--native-tests", metavar="BINARY",
+        help="Run a compiled test binary in a separate process instead of a YAML suite",
+    )
+    parser.add_argument(
+        "--native-timeout", type=float, metavar="SECONDS",
+        help="Native process timeout in seconds (default: 30; requires --native-tests)",
+    )
     parser.add_argument(
         "--report", help="Output path (default: reports/latest.json or reports/latest.xml)",
     )
     parser.add_argument(
-        "--report-format", choices=("json", "junit"), default="json",
+        "--report-format", choices=("json", "junit"),
         help="Report format: json (default) or junit (JUnit XML)",
     )
     selection = parser.add_mutually_exclusive_group()
@@ -31,6 +61,20 @@ def main() -> int:
         "--fail-fast", action="store_true", help="Stop execution after the first failed case",
     )
     args = parser.parse_args()
+    if args.native_tests is not None:
+        if args.config is not None:
+            parser.error("provide either a YAML config or --native-tests, not both")
+        if (
+            args.list_tests or args.case is not None or args.fail_fast
+            or args.report is not None or args.report_format is not None
+        ):
+            parser.error("--native-tests cannot be combined with YAML selection or report options")
+        return _run_native(args)
+    if args.config is None:
+        parser.error("provide a YAML config or --native-tests BINARY")
+    if args.native_timeout is not None:
+        parser.error("--native-timeout requires --native-tests")
+    args.report_format = args.report_format or "json"
 
     try:
         suite = load_suite(args.config)
