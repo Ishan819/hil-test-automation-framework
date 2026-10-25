@@ -25,3 +25,23 @@ jobs:
         run: hil-run scenarios/smoke.yaml
       - name: Run recovery suite with JUnit report
         run: hil-run scenarios/recovery.yaml --report-format junit --report reports/recovery.xml
+
+  native:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+      - name: Install Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install Python adapter CLI
+        run: python -m pip install -e .
+      - name: Configure C++ tests
+        run: cmake -S cpp -B build/cpp
+      - name: Build C++ tests
+        run: cmake --build build/cpp --parallel 2
+      - name: Run GoogleTest through CTest
+        run: ctest --test-dir build/cpp --output-on-failure --no-tests=error
+      - name: Run GoogleTest through the Python CLI
+        run: hil-run --native-tests build/cpp/hil_bench_tests --quiet
