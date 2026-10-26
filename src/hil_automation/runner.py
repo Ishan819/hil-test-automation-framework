@@ -7,6 +7,7 @@ from uuid import uuid4
 
 from .bench import Bench, SimulatedBench
 from .config import Suite
+from .native_results import NativeCaseResult
 
 
 class SimulatedConnectionFailure(AssertionError):
@@ -45,6 +46,8 @@ class RunReport:
     schema_version: str = "1.0"
     duration_ms: float = 0.0
     skipped: int = 0
+    native_results: list[NativeCaseResult] = field(default_factory=list)
+    native_exit_code: int | None = None
 
     def to_dict(self) -> dict:
         payload = asdict(self)
@@ -57,10 +60,13 @@ class RunReport:
         }
         steps = [step for case in self.results for step in case.steps]
         payload["statistics"] = {
-            "total_cases": len(self.results),
+            "total_cases": len(self.results) + len(self.native_results),
             "passed_cases": self.passed,
             "failed_cases": self.failed,
-            "skipped_cases": sum(case.status == "skipped" for case in self.results),
+            "skipped_cases": (
+                sum(case.status == "skipped" for case in self.results)
+                + sum(case.status in ("skipped", "disabled") for case in self.native_results)
+            ),
             "duration_ms": self.duration_ms,
             "total_steps": len(steps),
             "executed_steps": sum(step.status != "skipped" for step in steps),

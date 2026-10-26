@@ -5,6 +5,7 @@ from pathlib import Path
 import tempfile
 from xml.etree import ElementTree as ET
 
+from .native import NativeResult
 from .runner import RunReport
 
 
@@ -94,3 +95,19 @@ def write_junit_report(report: RunReport, path: str | Path) -> None:
         _atomic_write(path, content)
     except (OSError, ValueError) as exc:
         raise ReportError(f"Cannot write JUnit XML report to {str(path)!r}: {exc}") from exc
+
+
+def native_report(result: NativeResult) -> RunReport:
+    """Adapt validated GoogleTest cases without changing Python case/step semantics."""
+    if not result.results_captured:
+        raise ReportError("Native XML capture is required to generate a structured report")
+    if result.result_error is not None:
+        raise ReportError(f"Cannot report incomplete native results: {result.result_error}")
+    return RunReport(
+        suite="native-tests", started_at=result.started_at,
+        passed=sum(case.status == "passed" for case in result.cases),
+        failed=sum(case.status == "failed" for case in result.cases),
+        skipped=sum(case.status in ("skipped", "disabled") for case in result.cases),
+        results=[], native_results=list(result.cases), native_exit_code=result.exit_code,
+        duration_ms=result.duration_ms, finished_at=result.finished_at,
+    )
