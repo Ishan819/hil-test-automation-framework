@@ -27,24 +27,49 @@ def parse_gtest_xml(path: str | Path) -> list[NativeCaseResult]:
     if root.tag not in ("testsuites", "testsuite"):
         raise NativeResultError("GoogleTest XML root must be testsuites or testsuite")
     cases: list[NativeCaseResult] = []
+    seen: set[tuple[str, str]] = set()
     for suite in root.iter("testsuite"):
         for case in suite.findall("testcase"):
             suite_name = case.get("classname") or suite.get("name", "")
             name = case.get("name", "")
             if not suite_name.strip() or not name.strip():
                 raise NativeResultError("GoogleTest cases need a suite name and test name")
+            identity = (suite_name, name)
+            if identity in seen:
+                raise NativeResultError(f"Duplicate GoogleTest case: {suite_name}.{name}")
+            seen.add(identity)
+            execution = case.get("status", "run")
+            outcome = case.get("result", "suppressed" if execution == "notrun" else "completed")
+            if execution not in ("run", "notrun") or outcome not in (
+                "completed", "skipped", "suppressed",
+            ):
+                raise NativeResultError(f"Unknown GoogleTest outcome for {suite_name}.{name}")
+            diagnostics = case.findall("failure") + case.findall("error")
+            skipped = case.find("skipped")
+            if diagnostics:
+                status = "failed"
+                details = "\n".join(_diagnostic(item) for item in diagnostics)
+            elif execution == "notrun":
+                status, details = "disabled", "Disabled in GoogleTest"
+            elif skipped is not None or outcome == "skipped":
+                status = "skipped"
+                details = _diagnostic(skipped) if skipped is not None else "Skipped in GoogleTest"
+            elif outcome == "suppressed":
+                raise NativeResultError(f"Incomplete GoogleTest outcome for {suite_name}.{name}")
+            else:
+                status, details = "passed", ""
             try:
-                duration_ms = float(case.attrib["time"]) * 1000
-            except (KeyError, ValueError, OverflowError) as exc:
+                default_time = "0" if status in ("skipped", "disabled") else None
+                duration_ms = float(case.get("time", default_time)) * 1000
+            except (TypeError, ValueError, OverflowError) as exc:
                 raise NativeResultError(f"Invalid GoogleTest duration for {suite_name}.{name}") from exc
             if not math.isfinite(duration_ms) or duration_ms < 0:
                 raise NativeResultError(f"Invalid GoogleTest duration for {suite_name}.{name}")
-            if (
-                case.get("status", "run") != "run"
-                or case.get("result", "completed") != "completed"
-                or case.find("failure") is not None or case.find("skipped") is not None
-                or case.find("error") is not None
-            ):
-                raise NativeResultError("Unsupported GoogleTest outcome")
-            cases.append(NativeCaseResult(suite_name, name, "passed", duration_ms))
+            cases.append(NativeCaseResult(suite_name, name, status, duration_ms, details))
     return cases
+
+
+def _diagnostic(element: ET.Element) -> str:
+    message = element.get("message", "").strip()
+    body = "".join(element.itertext()).strip()
+    return "\n".join(dict.fromkeys(value for value in (message, body) if value)) or "No diagnostic provided"

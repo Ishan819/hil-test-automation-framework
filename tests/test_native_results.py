@@ -62,3 +62,50 @@ def test_nested_suites_and_optional_properties_do_not_duplicate_cases(tmp_path):
       </testsuite>
     </testsuites>""")
     assert parse_gtest_xml(path) == [NativeCaseResult("Inner", "Works", "passed", 2)]
+
+
+def test_failure_skip_and_disabled_outcomes(tmp_path):
+    from hil_automation.native_results import parse_gtest_xml
+
+    path = tmp_path / "outcomes.xml"
+    path.write_text("""<testsuite name="Cases">
+      <testcase name="Bad" time="0.002">
+        <failure message="expected &lt; 5"><![CDATA[file.cpp:12 expected < 5]]></failure>
+        <failure message="second failure"/>
+      </testcase>
+      <testcase name="Skip" status="run" result="skipped" time="0">
+        <skipped message="not ready">not ready</skipped>
+      </testcase>
+      <testcase name="DISABLED_Later" status="notrun" result="suppressed"/>
+      <testcase name="DISABLED_ExplicitlyRun" status="run" result="completed" time="0.1"/>
+    </testsuite>""")
+    cases = parse_gtest_xml(path)
+    assert [case.status for case in cases] == ["failed", "skipped", "disabled", "passed"]
+    assert cases[0].details == "expected < 5\nfile.cpp:12 expected < 5\nsecond failure"
+    assert cases[1].details == "not ready"
+    assert cases[2].duration_ms == 0
+
+
+def test_invalid_xml_and_missing_information(tmp_path):
+    import pytest
+    from hil_automation.native_results import NativeResultError, parse_gtest_xml
+
+    invalid = [
+        "<testsuites>", "<unknown/>",
+        '<testsuite><testcase name="MissingSuite" time="0"/></testsuite>',
+        '<testsuite name="Suite"><testcase time="0"/></testsuite>',
+        '<testsuite name="Suite"><testcase name="MissingTime"/></testsuite>',
+        *[f'<testsuite name="Suite"><testcase name="Bad" time="{value}"/></testsuite>'
+          for value in ("-1", "nan", "inf", "1e999", "invalid")],
+        '<testsuite name="Suite"><testcase name="Bad" time="0" result="unknown"/></testsuite>',
+        '<testsuite name="Suite"><testcase name="Bad" time="0" status="unknown"/></testsuite>',
+        '<testsuite name="Suite"><testcase name="Bad" time="0" result="suppressed"/></testsuite>',
+        '<testsuite name="Suite"><testcase name="Same" time="0"/><testcase name="Same" time="0"/></testsuite>',
+    ]
+    path = tmp_path / "invalid.xml"
+    for content in invalid:
+        path.write_text(content)
+        with pytest.raises(NativeResultError):
+            parse_gtest_xml(path)
+    with pytest.raises(NativeResultError, match="Cannot read GoogleTest XML"):
+        parse_gtest_xml(tmp_path / "missing.xml")
