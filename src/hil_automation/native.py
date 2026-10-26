@@ -1,10 +1,14 @@
 """Run native test executables as separate processes, without shared bench state."""
-from dataclasses import dataclass
+from dataclasses import dataclass, field, replace
+from datetime import datetime, timezone
 import math
 from pathlib import Path
 import subprocess
+import tempfile
 from time import perf_counter
 from typing import Sequence
+
+from .native_results import NativeCaseResult, parse_gtest_xml
 
 
 class NativeExecutionError(RuntimeError):
@@ -18,10 +22,15 @@ class NativeResult:
     stdout: str
     stderr: str
     duration_ms: float
+    cases: list[NativeCaseResult] = field(default_factory=list)
+    results_captured: bool = False
+    started_at: str = ""
+    finished_at: str = ""
 
 
 def run_native_tests(
     executable: str | Path, *, timeout: float = 30.0, arguments: Sequence[str] = (),
+    capture_xml: bool = False,
 ) -> NativeResult:
     """Execute a binary directly; nonzero test exits are results, not launch errors."""
     if isinstance(timeout, bool) or not isinstance(timeout, (int, float)):
@@ -34,6 +43,21 @@ def run_native_tests(
         raise ValueError("Native timeout must be a finite positive number of seconds")
 
     binary = Path(executable).expanduser().resolve()
+    if not capture_xml:
+        return _execute_native(binary, seconds, arguments)
+    if any(argument.startswith("--gtest_output") for argument in arguments):
+        raise ValueError("Structured capture manages --gtest_output automatically")
+    with tempfile.TemporaryDirectory(prefix="hil-gtest-") as directory:
+        output = Path(directory) / "results.xml"
+        started_at = datetime.now(timezone.utc).isoformat()
+        result = _execute_native(binary, seconds, [*arguments, f"--gtest_output=xml:{output}"])
+        return replace(
+            result, cases=parse_gtest_xml(output), results_captured=True,
+            started_at=started_at, finished_at=datetime.now(timezone.utc).isoformat(),
+        )
+
+
+def _execute_native(binary: Path, seconds: float, arguments: Sequence[str]) -> NativeResult:
     started = perf_counter()
     try:
         finished = subprocess.run(

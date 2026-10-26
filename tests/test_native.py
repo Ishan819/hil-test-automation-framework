@@ -82,3 +82,28 @@ def test_non_utf8_output_is_captured_without_crashing(native_executable):
     binary = native_executable("import os\nos.write(1, b'\\xff')\nos.write(2, b'\\xfe')")
     result = run_native_tests(binary)
     assert result.stdout == result.stderr == "\ufffd"
+
+
+def test_google_xml_capture_uses_a_unique_temporary_path(native_executable):
+    binary = native_executable("""import pathlib, sys
+output = pathlib.Path(next(arg.split("xml:", 1)[1] for arg in sys.argv if arg.startswith("--gtest_output=")))
+output.write_text('<testsuite name="Native"><testcase name="Works" time="0.01"/></testsuite>')
+print(output)
+""")
+    first = run_native_tests(binary, capture_xml=True)
+    second = run_native_tests(binary, capture_xml=True)
+    from pathlib import Path
+
+    assert first.results_captured is True
+    assert first.cases[0].name == "Works"
+    assert first.cases[0].duration_ms == 10
+    assert first.stdout != second.stdout
+    assert not Path(first.stdout.strip()).parent.exists()
+    assert not Path(second.stdout.strip()).parent.exists()
+    assert first.started_at <= first.finished_at
+
+
+def test_capture_rejects_overriding_xml_destination(tmp_path):
+    with pytest.raises(ValueError, match="manages --gtest_output"):
+        run_native_tests(tmp_path / "missing", capture_xml=True,
+                         arguments=("--gtest_output=xml:elsewhere.xml",))
