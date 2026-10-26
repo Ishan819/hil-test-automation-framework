@@ -145,3 +145,51 @@ def test_unexpected_termination_is_never_successful(native_executable):
     result = run_native_tests(binary, capture_xml=True)
     assert not result.successful
     assert "terminated by signal" in result.result_error
+
+
+def test_concurrent_captures_are_isolated_and_cleaned(native_executable):
+    from concurrent.futures import ThreadPoolExecutor
+    from pathlib import Path
+
+    binary = native_executable("""import pathlib, sys
+output = pathlib.Path(next(arg.split("xml:", 1)[1] for arg in sys.argv if arg.startswith("--gtest_output=")))
+output.write_text('<testsuite name="Concurrent"><testcase name="Works" time="0.001"/></testsuite>')
+print(output)
+""")
+    with ThreadPoolExecutor(max_workers=3) as pool:
+        results = list(pool.map(lambda _: run_native_tests(binary, capture_xml=True), range(3)))
+    assert all(result.successful for result in results)
+    assert len({result.stdout for result in results}) == 3
+    assert all(not Path(result.stdout.strip()).parent.exists() for result in results)
+    results[0].cases.clear()
+    assert len(results[1].cases) == len(results[2].cases) == 1
+
+
+def test_capture_timeout_cleans_temporary_directory(native_executable, tmp_path, monkeypatch):
+    from hil_automation import native
+
+    temporary_directory = native.tempfile.TemporaryDirectory
+    monkeypatch.setattr(
+        native.tempfile, "TemporaryDirectory",
+        lambda **kwargs: temporary_directory(dir=tmp_path, **kwargs),
+    )
+    binary = native_executable("import time\ntime.sleep(30)")
+    with pytest.raises(NativeExecutionError, match="timed out"):
+        run_native_tests(binary, timeout=0.1, capture_xml=True)
+    assert list(tmp_path.glob("hil-gtest-*")) == []
+
+
+@pytest.mark.parametrize("xml", [None, "<invalid>"])
+def test_missing_or_malformed_capture_cleans_temporary_directory(
+    gtest_executable, tmp_path, monkeypatch, xml,
+):
+    from hil_automation import native
+
+    temporary_directory = native.tempfile.TemporaryDirectory
+    monkeypatch.setattr(
+        native.tempfile, "TemporaryDirectory",
+        lambda **kwargs: temporary_directory(dir=tmp_path, **kwargs),
+    )
+    result = run_native_tests(gtest_executable(xml), capture_xml=True)
+    assert result.result_error
+    assert list(tmp_path.glob("hil-gtest-*")) == []

@@ -109,3 +109,20 @@ def test_invalid_xml_and_missing_information(tmp_path):
             parse_gtest_xml(path)
     with pytest.raises(NativeResultError, match="Cannot read GoogleTest XML"):
         parse_gtest_xml(tmp_path / "missing.xml")
+
+
+def test_counts_and_orphan_cases_are_not_silently_ignored(tmp_path):
+    import pytest
+    from hil_automation.native_results import NativeResultError, parse_gtest_xml
+
+    path = tmp_path / "counts.xml"
+    for content in [
+        '<testsuites tests="1"><testcase name="Orphan" classname="S" time="0"/></testsuites>',
+        '<testsuite name="S" tests="invalid"/>',
+        '<testsuite name="S" failures="1"><testcase name="T" time="0"/></testsuite>',
+        '<testsuite name="S" disabled="0"><testcase name="T" status="notrun"/></testsuite>',
+        '<testsuite name="S" skipped="0"><testcase name="T" result="skipped"/></testsuite>',
+    ]:
+        path.write_text(content)
+        with pytest.raises(NativeResultError):
+            parse_gtest_xml(path)
