@@ -107,3 +107,41 @@ def test_capture_rejects_overriding_xml_destination(tmp_path):
     with pytest.raises(ValueError, match="manages --gtest_output"):
         run_native_tests(tmp_path / "missing", capture_xml=True,
                          arguments=("--gtest_output=xml:elsewhere.xml",))
+
+
+@pytest.mark.parametrize("xml, code, error", [
+    (None, 0, "Cannot read GoogleTest XML"),
+    ("<testsuites>", 0, "Cannot read GoogleTest XML"),
+    ('<testsuite name="Suite" tests="2"><testcase name="One" time="0"/></testsuite>',
+     0, "Incomplete GoogleTest XML"),
+    ('<testsuite name="Suite"><testcase name="One" time="0"/></testsuite>',
+     7, "exited with code 7 but XML reports no failures"),
+    ('<testsuite name="Suite"><testcase name="One" time="0"><failure message="bad"/></testcase></testsuite>',
+     0, "exited successfully but GoogleTest XML reports failures"),
+    ('<testsuites/>', 0, "must declare tests=0"),
+])
+def test_capture_errors_can_never_report_success(gtest_executable, xml, code, error):
+    result = run_native_tests(gtest_executable(xml, code), capture_xml=True)
+    assert result.successful is False
+    assert error in result.result_error
+    assert result.exit_code == code
+    assert result.stdout == "native output\n"
+    assert result.stderr == "native diagnostic\n"
+
+
+def test_valid_failure_is_an_outcome_not_a_capture_error(gtest_executable):
+    binary = gtest_executable(
+        '<testsuite name="Suite"><testcase name="One" time="0"><failure message="bad"/></testcase></testsuite>',
+        exit_code=1,
+    )
+    result = run_native_tests(binary, capture_xml=True)
+    assert result.result_error is None
+    assert result.successful is False
+    assert result.cases[0].status == "failed"
+
+
+def test_unexpected_termination_is_never_successful(native_executable):
+    binary = native_executable("import os, signal\nos.kill(os.getpid(), signal.SIGTERM)")
+    result = run_native_tests(binary, capture_xml=True)
+    assert not result.successful
+    assert "terminated by signal" in result.result_error

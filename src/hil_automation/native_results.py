@@ -26,6 +26,7 @@ def parse_gtest_xml(path: str | Path) -> list[NativeCaseResult]:
         raise NativeResultError(f"Cannot read GoogleTest XML: {exc}") from exc
     if root.tag not in ("testsuites", "testsuite"):
         raise NativeResultError("GoogleTest XML root must be testsuites or testsuite")
+    _validate_counts(root)
     cases: list[NativeCaseResult] = []
     seen: set[tuple[str, str]] = set()
     for suite in root.iter("testsuite"):
@@ -66,6 +67,8 @@ def parse_gtest_xml(path: str | Path) -> list[NativeCaseResult]:
             if not math.isfinite(duration_ms) or duration_ms < 0:
                 raise NativeResultError(f"Invalid GoogleTest duration for {suite_name}.{name}")
             cases.append(NativeCaseResult(suite_name, name, status, duration_ms, details))
+    if len(cases) != sum(1 for _ in root.iter("testcase")):
+        raise NativeResultError("GoogleTest cases must belong directly to a testsuite")
     return cases
 
 
@@ -73,3 +76,34 @@ def _diagnostic(element: ET.Element) -> str:
     message = element.get("message", "").strip()
     body = "".join(element.itertext()).strip()
     return "\n".join(dict.fromkeys(value for value in (message, body) if value)) or "No diagnostic provided"
+
+
+def _validate_counts(root: ET.Element) -> None:
+    for element in root.iter():
+        if element.tag not in ("testsuites", "testsuite"):
+            continue
+        cases = list(element.iter("testcase"))
+        observed = {
+            "tests": len(cases),
+            "failures": sum(case.find("failure") is not None for case in cases),
+            "errors": sum(case.find("error") is not None for case in cases),
+            "disabled": sum(case.get("status") == "notrun" for case in cases),
+            "skipped": sum(
+                case.get("status") != "notrun" and (
+                    case.get("result") == "skipped" or case.find("skipped") is not None
+                ) for case in cases
+            ),
+        }
+        if element is root and not cases and "tests" not in element.attrib:
+            raise NativeResultError("Empty GoogleTest XML must declare tests=0")
+        for key, expected in observed.items():
+            if key not in element.attrib:
+                continue
+            try:
+                reported = int(element.attrib[key])
+            except ValueError as exc:
+                raise NativeResultError(f"Invalid GoogleTest {key} count") from exc
+            if reported != expected:
+                raise NativeResultError(
+                    f"Incomplete GoogleTest XML: {key} count {reported}, found {expected}"
+                )

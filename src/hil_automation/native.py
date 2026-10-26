@@ -8,7 +8,7 @@ import tempfile
 from time import perf_counter
 from typing import Sequence
 
-from .native_results import NativeCaseResult, parse_gtest_xml
+from .native_results import NativeCaseResult, NativeResultError, parse_gtest_xml
 
 
 class NativeExecutionError(RuntimeError):
@@ -26,6 +26,14 @@ class NativeResult:
     results_captured: bool = False
     started_at: str = ""
     finished_at: str = ""
+    result_error: str | None = None
+
+    @property
+    def successful(self) -> bool:
+        return (
+            self.exit_code == 0 and self.result_error is None
+            and not any(case.status == "failed" for case in self.cases)
+        )
 
 
 def run_native_tests(
@@ -51,8 +59,22 @@ def run_native_tests(
         output = Path(directory) / "results.xml"
         started_at = datetime.now(timezone.utc).isoformat()
         result = _execute_native(binary, seconds, [*arguments, f"--gtest_output=xml:{output}"])
+        cases: list[NativeCaseResult] = []
+        error = None
+        try:
+            cases = parse_gtest_xml(output)
+        except NativeResultError as exc:
+            error = str(exc)
+        if result.exit_code < 0:
+            error = f"Native test process terminated by signal {-result.exit_code}"
+        elif error is None:
+            failed = any(case.status == "failed" for case in cases)
+            if result.exit_code == 0 and failed:
+                error = "Native process exited successfully but GoogleTest XML reports failures"
+            elif result.exit_code != 0 and not failed:
+                error = f"Native process exited with code {result.exit_code} but XML reports no failures"
         return replace(
-            result, cases=parse_gtest_xml(output), results_captured=True,
+            result, cases=cases, results_captured=True, result_error=error,
             started_at=started_at, finished_at=datetime.now(timezone.utc).isoformat(),
         )
 
