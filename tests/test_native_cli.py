@@ -123,3 +123,26 @@ def test_native_results_requires_native_mode():
     finished = cli("suite.yaml", "--native-results")
     assert finished.returncode == 2
     assert "--native-results requires --native-tests" in finished.stderr
+
+
+@pytest.mark.parametrize("xml, exit_code", [
+    ('<testsuite name="S"><testcase name="T" time="0"><failure message="bad"/></testcase></testsuite>', 0),
+    ('<testsuite name="S"><testcase name="T" time="0"/></testsuite>', 7),
+    ('<testsuite name="S" tests="2"><testcase name="T" time="0"/></testsuite>', 0),
+])
+def test_cli_never_reports_inconsistent_capture_as_passing(gtest_executable, tmp_path, xml, exit_code):
+    output = tmp_path / "previous.json"
+    output.write_text("previous")
+    finished = cli("--native-tests", gtest_executable(xml, exit_code), "--report", output)
+    assert finished.returncode == 2
+    assert "Error:" in finished.stderr
+    assert "Native results:" not in finished.stdout
+    assert output.read_text() == "previous"
+
+
+def test_native_report_write_error_is_clear(gtest_executable, tmp_path):
+    binary = gtest_executable('<testsuite name="S"><testcase name="T" time="0"/></testsuite>')
+    finished = cli("--native-tests", binary, "--report", tmp_path)
+    assert finished.returncode == 2
+    assert "Cannot write JSON report" in finished.stderr
+    assert "Native results:" not in finished.stdout

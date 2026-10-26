@@ -25,3 +25,12 @@ if(BUILD_TESTING)
     include(GoogleTest)
     gtest_discover_tests(hil_bench_tests)
 endif()
+
+# Optional mixed-outcome binary for Python end-to-end reporting tests.
+option(HIL_BUILD_REPORTING_FIXTURE "Build intentionally failing reporting fixture" OFF)
+if(BUILD_TESTING AND HIL_BUILD_REPORTING_FIXTURE)
+    add_executable(hil_reporting_fixture tests/reporting_fixture.cpp)
+    target_compile_features(hil_reporting_fixture PRIVATE cxx_std_17)
+    target_link_libraries(hil_reporting_fixture PRIVATE GTest::gtest_main)
+    set_target_properties(hil_reporting_fixture PROPERTIES CXX_EXTENSIONS OFF)
+endif()

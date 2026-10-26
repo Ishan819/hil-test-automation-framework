@@ -28,3 +28,28 @@ def gtest_executable(native_executable):
         )
 
     return create
+
+
+def _compiled_binary(environment_key, filename):
+    import os
+    from pathlib import Path
+
+    configured = os.environ.get(environment_key)
+    path = Path(configured) if configured else (
+        Path(__file__).resolve().parents[1] / "build" / "cpp" / filename
+    )
+    if not path.is_file():
+        if configured:
+            pytest.fail(f"{environment_key} does not identify a compiled binary: {path}")
+        pytest.skip(f"Build {filename} to run native integration tests")
+    return path.resolve()
+
+
+@pytest.fixture
+def compiled_gtest_binary():
+    return _compiled_binary("HIL_NATIVE_TEST_BINARY", "hil_bench_tests")
+
+
+@pytest.fixture
+def compiled_reporting_binary():
+    return _compiled_binary("HIL_NATIVE_REPORTING_BINARY", "hil_reporting_fixture")
