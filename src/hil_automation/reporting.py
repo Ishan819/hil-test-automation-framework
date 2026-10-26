@@ -6,7 +6,7 @@ import tempfile
 from xml.etree import ElementTree as ET
 
 from .native import NativeResult
-from .runner import RunReport
+from .runner import CaseResult, RunReport
 
 
 class ReportError(ValueError):
@@ -54,24 +54,33 @@ def _xml_text(value: str) -> str:
 
 def junit_xml(report: RunReport) -> str:
     """Render one JUnit testsuite; elapsed times use seconds as JUnit expects."""
+    cases = [(report.suite, case) for case in report.results]
+    cases.extend(
+        (case.suite, CaseResult(
+            case.name, "skipped" if case.status == "disabled" else case.status,
+            case.duration_ms, case.details,
+            failure_category="native_test_failure" if case.status == "failed" else None,
+        ))
+        for case in report.native_results
+    )
     errors = sum(
         case.status == "failed" and case.failure_category == "invalid_test_configuration"
-        for case in report.results
+        for _, case in cases
     )
     root = ET.Element("testsuite", {
         "name": _xml_text(report.suite),
-        "tests": str(len(report.results)),
-        "failures": str(sum(case.status == "failed" for case in report.results) - errors),
+        "tests": str(len(cases)),
+        "failures": str(sum(case.status == "failed" for _, case in cases) - errors),
         "errors": str(errors),
-        "skipped": str(sum(case.status == "skipped" for case in report.results)),
+        "skipped": str(sum(case.status == "skipped" for _, case in cases)),
         "time": f"{report.duration_ms / 1000:.6f}",
         "timestamp": report.started_at,
         "id": report.run_id,
     })
-    for case in report.results:
+    for suite_name, case in cases:
         element = ET.SubElement(root, "testcase", {
             "name": _xml_text(case.name),
-            "classname": _xml_text(report.suite),
+            "classname": _xml_text(suite_name),
             "time": f"{case.duration_ms / 1000:.6f}",
         })
         if case.status == "failed":

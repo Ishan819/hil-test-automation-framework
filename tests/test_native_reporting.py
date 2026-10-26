@@ -93,3 +93,48 @@ def test_empty_native_capture_has_zero_case_counts(gtest_executable):
     assert (data["passed"], data["failed"], data["skipped"]) == (0, 0, 0)
     assert data["statistics"]["total_cases"] == 0
     assert data["native_results"] == []
+
+
+def test_native_junit_failures_skips_disabled_and_escaping(gtest_executable, tmp_path):
+    from xml.etree import ElementTree as ET
+    from hil_automation.reporting import write_junit_report
+
+    binary = gtest_executable("""<testsuite name="Native &amp; Suite">
+      <testcase name="Pass &lt; value" time="0.002"/>
+      <testcase name="Fail" time="0.0125"><failure message="expected &lt; 5 &amp; safe"/></testcase>
+      <testcase name="Skip" result="skipped"><skipped message="not ready"/></testcase>
+      <testcase name="DISABLED_Later" status="notrun"/>
+    </testsuite>""", exit_code=1)
+    report = native_report(run_native_tests(binary, capture_xml=True))
+    path = tmp_path / "native.xml"
+    write_junit_report(report, path)
+    root = ET.parse(path).getroot()
+    assert (root.get("tests"), root.get("failures"), root.get("skipped"), root.get("errors")) == (
+        "4", "1", "2", "0",
+    )
+    cases = root.findall("testcase")
+    assert cases[0].get("name") == "Pass < value"
+    assert cases[0].get("classname") == "Native & Suite"
+    assert cases[1].get("time") == "0.012500"
+    assert cases[1].find("failure").get("type") == "native_test_failure"
+    assert cases[1].find("failure").text == "expected < 5 & safe"
+    assert cases[2].find("skipped").get("message") == "not ready"
+    assert cases[3].find("skipped").get("message") == "Disabled in GoogleTest"
+
+
+def test_mixed_junit_preserves_python_and_native_classnames(tmp_path):
+    from xml.etree import ElementTree as ET
+    from hil_automation.native_results import NativeCaseResult
+    from hil_automation.reporting import write_junit_report
+    from hil_automation.runner import CaseResult, RunReport
+
+    report = RunReport(
+        "python-suite", "", 1, 1,
+        [CaseResult("python-case", "failed", 1, "invalid", failure_category="invalid_test_configuration")],
+        native_results=[NativeCaseResult("cpp-suite", "cpp-case", "passed", 2)],
+    )
+    path = tmp_path / "mixed.xml"
+    write_junit_report(report, path)
+    root = ET.parse(path).getroot()
+    assert (root.get("tests"), root.get("errors"), root.get("failures")) == ("2", "1", "0")
+    assert [case.get("classname") for case in root.findall("testcase")] == ["python-suite", "cpp-suite"]
