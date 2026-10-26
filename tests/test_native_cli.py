@@ -52,7 +52,6 @@ def test_cli_native_rejects_invalid_timeout(tmp_path, timeout):
 
 @pytest.mark.parametrize("arguments", [
     ["suite.yaml"], ["--case", "case"], ["--list-tests"], ["--fail-fast"],
-    ["--report", "unused.json"], ["--report-format", "json"], ["--report-format", "junit"],
 ])
 def test_native_rejects_yaml_only_options(tmp_path, arguments):
     finished = cli("--native-tests", tmp_path / "missing", *arguments)
@@ -88,3 +87,39 @@ def test_verbose_native_mode_shows_duration_and_executable(native_executable):
     assert f"Native executable: {binary.resolve()}" in finished.stdout
     assert "Native duration:" in finished.stdout
     assert "ms\ndetail" in finished.stdout
+
+
+def test_native_results_display_individual_cases_without_writing_reports(gtest_executable, tmp_path, monkeypatch):
+    binary = gtest_executable('<testsuite name="Native"><testcase name="Works" time="0.01"/></testsuite>')
+    monkeypatch.chdir(tmp_path)
+    finished = cli("--native-tests", binary, "--native-results", "--verbose")
+    assert finished.returncode == 0, finished.stderr
+    assert "Native.Works (10.000 ms)" in finished.stdout
+    assert "Native results: 1 passed, 0 failed, 0 skipped" in finished.stdout
+    assert not (tmp_path / "reports").exists()
+
+
+def test_native_report_option_enables_capture(gtest_executable, tmp_path):
+    import json
+
+    binary = gtest_executable('<testsuite name="Native"><testcase name="Works" time="0.01"/></testsuite>')
+    output = tmp_path / "native.json"
+    finished = cli("--native-tests", binary, "--report", output)
+    assert finished.returncode == 0, finished.stderr
+    assert json.loads(output.read_text())["native_results"][0]["name"] == "Works"
+
+
+def test_native_capture_error_preserves_existing_report(gtest_executable, tmp_path):
+    output = tmp_path / "existing.json"
+    output.write_text("previous")
+    finished = cli("--native-tests", gtest_executable(None), "--report", output)
+    assert finished.returncode == 2
+    assert "Cannot read GoogleTest XML" in finished.stderr
+    assert "passed" not in finished.stdout
+    assert output.read_text() == "previous"
+
+
+def test_native_results_requires_native_mode():
+    finished = cli("suite.yaml", "--native-results")
+    assert finished.returncode == 2
+    assert "--native-results requires --native-tests" in finished.stderr

@@ -5,15 +5,18 @@ from pathlib import Path
 
 from .config import Suite, load_suite
 from .native import NativeExecutionError, run_native_tests
-from .reporting import write_json_report, write_junit_report
+from .reporting import native_report, write_json_report, write_junit_report
 from .runner import run_suite
 
 
 def _run_native(args: argparse.Namespace) -> int:
+    report_requested = args.report is not None or args.report_format is not None
+    structured = args.native_results or report_requested
     try:
         result = run_native_tests(
             args.native_tests,
             timeout=args.native_timeout if args.native_timeout is not None else 30.0,
+            capture_xml=structured,
         )
     except (NativeExecutionError, ValueError, OSError) as exc:
         print(f"Error: {exc}", file=sys.stderr)
@@ -21,13 +24,42 @@ def _run_native(args: argparse.Namespace) -> int:
     if args.verbose:
         print(f"Native executable: {result.executable}")
         print(f"Native duration: {result.duration_ms:.3f} ms")
-    if not args.quiet and result.stdout:
+    if not args.quiet and result.stdout and (not structured or args.verbose):
         print(result.stdout, end="" if result.stdout.endswith("\n") else "\n")
     if result.stderr:
         print(result.stderr, end="", file=sys.stderr)
-    status = "passed" if result.exit_code == 0 else "failed"
-    print(f"Native tests: {status} (exit code {result.exit_code})")
-    return 0 if result.exit_code == 0 else 1
+    if result.result_error is not None:
+        print(f"Error: {result.result_error}", file=sys.stderr)
+        return 2
+    if report_requested:
+        report_format = args.report_format or "json"
+        suffix = "json" if report_format == "json" else "xml"
+        output = Path(args.report) if args.report is not None else Path(f"reports/latest.{suffix}")
+        try:
+            report = native_report(result)
+            if report_format == "json":
+                write_json_report(report, output)
+            else:
+                write_junit_report(report, output)
+        except (ValueError, OSError) as exc:
+            print(f"Error: {exc}", file=sys.stderr)
+            return 2
+        if not args.quiet:
+            label = "JSON" if report_format == "json" else "JUnit XML"
+            print(f"{label} report: {output}")
+    if structured:
+        if not args.quiet:
+            for case in result.cases:
+                timing = f" ({case.duration_ms:.3f} ms)" if args.verbose else ""
+                print(f"  [{case.status.upper():8}] {case.suite}.{case.name}{timing} - {case.details}")
+        passed = sum(case.status == "passed" for case in result.cases)
+        failed = sum(case.status == "failed" for case in result.cases)
+        skipped = sum(case.status in ("skipped", "disabled") for case in result.cases)
+        print(f"Native results: {passed} passed, {failed} failed, {skipped} skipped")
+    else:
+        status = "passed" if result.successful else "failed"
+        print(f"Native tests: {status} (exit code {result.exit_code})")
+    return 0 if result.successful else 1
 
 
 def main() -> int:
@@ -36,6 +68,10 @@ def main() -> int:
     parser.add_argument(
         "--native-tests", metavar="BINARY",
         help="Run a compiled test binary in a separate process instead of a YAML suite",
+    )
+    parser.add_argument(
+        "--native-results", action="store_true",
+        help="Capture and display individual GoogleTest XML results (requires --native-tests)",
     )
     parser.add_argument(
         "--native-timeout", type=float, metavar="SECONDS",
@@ -66,14 +102,15 @@ def main() -> int:
             parser.error("provide either a YAML config or --native-tests, not both")
         if (
             args.list_tests or args.case is not None or args.fail_fast
-            or args.report is not None or args.report_format is not None
         ):
-            parser.error("--native-tests cannot be combined with YAML selection or report options")
+            parser.error("--native-tests cannot be combined with YAML selection options")
         return _run_native(args)
     if args.config is None:
         parser.error("provide a YAML config or --native-tests BINARY")
     if args.native_timeout is not None:
         parser.error("--native-timeout requires --native-tests")
+    if args.native_results:
+        parser.error("--native-results requires --native-tests")
     args.report_format = args.report_format or "json"
 
     try:

@@ -15,6 +15,9 @@ hil-run --native-tests build/cpp/hil_bench_tests --native-timeout 30
 
 Install the Python package first with `python -m pip install -e ".[dev]"`.
 Native tests run in a separate process with their own simulator; they do not
-share Python bench state or produce HIL JSON/JUnit reports. Native mode supports
+share Python bench state. Use `--native-results` for individual GoogleTest outcomes,
+or `--report reports/native.json` to capture them in a HIL report. Add
+`--report-format junit` for JUnit XML. Report options automatically enable XML capture;
+without them, raw native execution remains unchanged. Native mode supports
 `--verbose` and `--quiet`. CLI exit codes are 0 for success, 1 for test failure,
 and 2 for launch, timeout, or argument errors. YAML commands work as before.
