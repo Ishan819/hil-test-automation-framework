@@ -21,3 +21,10 @@ or `--report reports/native.json` to capture them in a HIL report. Add
 without them, raw native execution remains unchanged. Native mode supports
 `--verbose` and `--quiet`. CLI exit codes are 0 for success, 1 for test failure,
 and 2 for launch, timeout, or argument errors. YAML commands work as before.
+
+
+To include the optional mixed-outcome reporting fixture, configure with
+`cmake -S cpp -B build/cpp -DHIL_BUILD_REPORTING_FIXTURE=ON` and rebuild.
+Run `python -m pytest -q -m native_integration` for real-binary reporting tests.
+These tests skip when their binaries are absent; CI builds and requires both.
+The intentionally failing fixture is separate from the passing CTest suite.
