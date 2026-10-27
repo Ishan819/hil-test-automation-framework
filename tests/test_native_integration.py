@@ -108,3 +108,91 @@ def test_real_filtered_and_empty_gtest_results(compiled_gtest_binary, pattern, e
     )
     assert result.successful
     assert len(result.cases) == expected
+
+
+@pytest.mark.parametrize("pattern, expected_names", [
+    ("SimulatedBenchTest.StartsWithSafeDefaults", ["StartsWithSafeDefaults"]),
+    ("SimulatedBenchTest.Accepts*", [
+        "AcceptsVoltageIncludingBoundaries", "AcceptsTemperatureIncludingBoundaries",
+    ]),
+    ("SimulatedBenchTest.StartsWithSafeDefaults:SimulatedBenchTest.CanDisconnectAndReconnect", [
+        "StartsWithSafeDefaults", "CanDisconnectAndReconnect",
+    ]),
+    ("SimulatedBenchTest.Accepts*-*.AcceptsTemperature*", ["AcceptsVoltageIncludingBoundaries"]),
+])
+@pytest.mark.parametrize("report_format", ["json", "junit"])
+def test_filtered_native_reports_only_contain_selected_cases(
+    compiled_gtest_binary, tmp_path, pattern, expected_names, report_format,
+):
+    output = tmp_path / f"filtered.{report_format}"
+    finished = run_cli(
+        compiled_gtest_binary, "--native-filter", pattern, "--report-format", report_format,
+        "--report", output, "--quiet",
+    )
+    assert finished.returncode == 0, finished.stderr
+    assert finished.stdout == f"Native results: {len(expected_names)} passed, 0 failed, 0 skipped\n"
+    if report_format == "json":
+        data = json.loads(output.read_text())
+        assert [case["name"] for case in data["native_results"]] == expected_names
+        assert data["passed"] == data["statistics"]["total_cases"] == len(expected_names)
+        assert data["native_exit_code"] == data["failed"] == data["skipped"] == 0
+        assert data["results"] == []
+    else:
+        root = ET.parse(output).getroot()
+        assert [case.get("name") for case in root.findall("testcase")] == expected_names
+        assert root.get("tests") == str(len(expected_names))
+        assert root.get("failures") == root.get("errors") == root.get("skipped") == "0"
+
+
+@pytest.mark.parametrize("pattern, names, expected_code", [
+    ("ReportingFixture.Passing", ["Passing"], 0),
+    ("ReportingFixture.Failing", ["Failing"], 1),
+    ("ReportingFixture.Passing:ReportingFixture.Failing", ["Passing", "Failing"], 1),
+])
+@pytest.mark.parametrize("report_format", ["json", "junit"])
+def test_filtering_excludes_unselected_faults_and_preserves_failure_exit_codes(
+    compiled_reporting_binary, tmp_path, pattern, names, expected_code, report_format,
+):
+    output = tmp_path / f"selected.{report_format}"
+    finished = run_cli(
+        compiled_reporting_binary, "--native-filter", pattern, "--report-format", report_format,
+        "--report", output,
+    )
+    assert finished.returncode == expected_code, finished.stderr
+    if report_format == "json":
+        data = json.loads(output.read_text())
+        assert [case["name"] for case in data["native_results"]] == names
+        assert data["native_exit_code"] == expected_code
+        assert data["failed"] == expected_code
+        assert data["skipped"] == 0
+        if expected_code:
+            assert "Intentional reporting fixture failure" in data["native_results"][-1]["details"]
+    else:
+        root = ET.parse(output).getroot()
+        assert [case.get("name") for case in root.findall("testcase")] == names
+        assert root.get("failures") == str(expected_code)
+        assert root.get("skipped") == "0"
+
+
+@pytest.mark.parametrize("report_format", ["json", "junit"])
+def test_real_filter_with_no_matches_preserves_report_and_returns_error(
+    compiled_gtest_binary, tmp_path, report_format,
+):
+    output = tmp_path / f"previous.{report_format}"
+    output.write_text("previous report", encoding="utf-8")
+    finished = run_cli(
+        compiled_gtest_binary, "--native-filter", "MissingSuite.*",
+        "--report-format", report_format, "--report", output, "--quiet",
+    )
+    assert finished.returncode == 2
+    assert "Native filter matched no tests" in finished.stderr
+    assert "passed" not in finished.stdout
+    assert output.read_text() == "previous report"
+
+
+def test_real_filter_without_report_still_detects_zero_matches(compiled_gtest_binary, tmp_path):
+    finished = run_cli(compiled_gtest_binary, "--native-filter", "MissingSuite.*", cwd=tmp_path)
+    assert finished.returncode == 2
+    assert "matched no tests" in finished.stderr
+    assert "passed" not in finished.stdout
+    assert not (tmp_path / "reports").exists()

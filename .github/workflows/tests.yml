@@ -47,6 +47,8 @@ jobs:
         run: hil-run --native-tests build/cpp/hil_bench_tests --report reports/native.json --quiet
       - name: Capture native JUnit results through the CLI
         run: hil-run --native-tests build/cpp/hil_bench_tests --report-format junit --report reports/native.xml --quiet
+      - name: Verify filtered native execution
+        run: hil-run --native-tests build/cpp/hil_bench_tests --native-filter 'SimulatedBenchTest.StartsWithSafeDefaults' --report reports/native-filtered.json --quiet
       - name: Verify native reporting integration
         env:
           HIL_NATIVE_TEST_BINARY: build/cpp/hil_bench_tests
