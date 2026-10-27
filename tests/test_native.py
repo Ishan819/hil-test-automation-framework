@@ -193,3 +193,46 @@ def test_missing_or_malformed_capture_cleans_temporary_directory(
     result = run_native_tests(gtest_executable(xml), capture_xml=True)
     assert result.result_error
     assert list(tmp_path.glob("hil-gtest-*")) == []
+
+
+@pytest.mark.parametrize("capture_xml", [False, True])
+def test_native_filter_is_one_literal_argument_and_enables_capture(native_executable, capture_xml):
+    import json
+
+    binary = native_executable("""import json, pathlib, sys
+output = pathlib.Path(next(arg.split("xml:", 1)[1] for arg in sys.argv if arg.startswith("--gtest_output=")))
+output.write_text('<testsuite name="Native"><testcase name="Selected" time="0"/></testsuite>')
+print(json.dumps(sys.argv[1:]))
+""")
+    pattern = "Suite.*:Other.Case-Suite.Excluded; echo not-a-shell"
+    result = run_native_tests(binary, native_filter=pattern, capture_xml=capture_xml)
+    arguments = json.loads(result.stdout)
+    assert arguments[0] == f"--gtest_filter={pattern}"
+    assert len(arguments) == 2
+    assert arguments[1].startswith("--gtest_output=xml:")
+    assert result.results_captured and result.successful
+    assert result.cases[0].name == "Selected"
+
+
+@pytest.mark.parametrize("pattern", ["", "   ", 1, True, [], b"Suite.*", "S.\x00", "S.\n", "S.\r", "S.\x7f"])
+def test_native_filter_rejects_invalid_values_before_execution(tmp_path, pattern):
+    with pytest.raises(ValueError, match="Native filter must be a non-empty string"):
+        run_native_tests(tmp_path / "missing", native_filter=pattern)
+
+
+@pytest.mark.parametrize("arguments", [("--gtest_filter=Other.*",), ("--gtest_filter", "Other.*")])
+def test_native_filter_cannot_conflict_with_manual_arguments(tmp_path, arguments):
+    with pytest.raises(ValueError, match="filter only once"):
+        run_native_tests(tmp_path / "missing", native_filter="Suite.*", arguments=arguments)
+
+
+def test_native_filter_no_matches_is_not_successful(gtest_executable):
+    binary = gtest_executable('<testsuites tests="0"/>')
+    filtered = run_native_tests(binary, native_filter="Missing.*")
+    assert filtered.exit_code == 0
+    assert not filtered.successful
+    assert filtered.result_error == "Native filter matched no tests: 'Missing.*'"
+    assert filtered.cases == []
+    unfiltered = run_native_tests(binary, capture_xml=True)
+    assert unfiltered.successful
+    assert unfiltered.result_error is None

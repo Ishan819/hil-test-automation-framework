@@ -38,7 +38,7 @@ class NativeResult:
 
 def run_native_tests(
     executable: str | Path, *, timeout: float = 30.0, arguments: Sequence[str] = (),
-    capture_xml: bool = False,
+    capture_xml: bool = False, native_filter: str | None = None,
 ) -> NativeResult:
     """Execute a binary directly; nonzero test exits are results, not launch errors."""
     if isinstance(timeout, bool) or not isinstance(timeout, (int, float)):
@@ -49,6 +49,18 @@ def run_native_tests(
         raise ValueError("Native timeout must be a finite positive number of seconds") from exc
     if not math.isfinite(seconds) or seconds <= 0:
         raise ValueError("Native timeout must be a finite positive number of seconds")
+
+    if native_filter is not None:
+        if (
+            not isinstance(native_filter, str) or not native_filter.strip()
+            or any(ord(character) < 32 or ord(character) == 127 for character in native_filter)
+        ):
+            raise ValueError("Native filter must be a non-empty string without control characters")
+        if any(arg == "--gtest_filter" or arg.startswith("--gtest_filter=") for arg in arguments):
+            raise ValueError("Specify the native filter only once")
+        arguments = [*arguments, f"--gtest_filter={native_filter}"]
+        # Inspect actual outcomes even in otherwise raw mode; zero matches is an error.
+        capture_xml = True
 
     binary = Path(executable).expanduser().resolve()
     if not capture_xml:
@@ -73,6 +85,8 @@ def run_native_tests(
                 error = "Native process exited successfully but GoogleTest XML reports failures"
             elif result.exit_code != 0 and not failed:
                 error = f"Native process exited with code {result.exit_code} but XML reports no failures"
+        if error is None and native_filter is not None and not cases:
+            error = f"Native filter matched no tests: {native_filter!r}"
         return replace(
             result, cases=cases, results_captured=True, result_error=error,
             started_at=started_at, finished_at=datetime.now(timezone.utc).isoformat(),
