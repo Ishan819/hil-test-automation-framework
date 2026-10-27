@@ -11,12 +11,12 @@ from .runner import run_suite
 
 def _run_native(args: argparse.Namespace) -> int:
     report_requested = args.report is not None or args.report_format is not None
-    structured = args.native_results or report_requested
+    structured = args.native_results or report_requested or args.native_filter is not None
     try:
         result = run_native_tests(
             args.native_tests,
             timeout=args.native_timeout if args.native_timeout is not None else 30.0,
-            capture_xml=structured,
+            capture_xml=structured, native_filter=args.native_filter,
         )
     except (NativeExecutionError, ValueError, OSError) as exc:
         print(f"Error: {exc}", file=sys.stderr)
@@ -74,6 +74,10 @@ def main() -> int:
         help="Capture and display individual GoogleTest XML results (requires --native-tests)",
     )
     parser.add_argument(
+        "--native-filter", metavar="PATTERN",
+        help="GoogleTest filter (requires --native-tests; no matches returns exit code 2)",
+    )
+    parser.add_argument(
         "--native-timeout", type=float, metavar="SECONDS",
         help="Native process timeout in seconds (default: 30; requires --native-tests)",
     )
@@ -105,6 +109,8 @@ def main() -> int:
         ):
             parser.error("--native-tests cannot be combined with YAML selection options")
         return _run_native(args)
+    if args.native_filter is not None:
+        parser.error("--native-filter requires --native-tests")
     if args.config is None:
         parser.error("provide a YAML config or --native-tests BINARY")
     if args.native_timeout is not None:

@@ -146,3 +146,49 @@ def test_native_report_write_error_is_clear(gtest_executable, tmp_path):
     assert finished.returncode == 2
     assert "Cannot write JSON report" in finished.stderr
     assert "Native results:" not in finished.stdout
+
+
+def test_native_filter_cli_forwards_pattern_and_shows_selected_outcome(native_executable):
+    binary = native_executable("""import pathlib, sys
+assert '--gtest_filter=Suite.One:Suite.Two-Suite.Excluded' in sys.argv
+output = pathlib.Path(next(arg.split("xml:", 1)[1] for arg in sys.argv if arg.startswith("--gtest_output=")))
+output.write_text('<testsuite name="Suite"><testcase name="One" time="0"/></testsuite>')
+""")
+    finished = cli(
+        "--native-tests", binary, "--native-filter", "Suite.One:Suite.Two-Suite.Excluded", "--quiet",
+    )
+    assert finished.returncode == 0, finished.stderr
+    assert finished.stdout == "Native results: 1 passed, 0 failed, 0 skipped\n"
+
+
+@pytest.mark.parametrize("arguments", [[], ["suite.yaml"], ["suite.yaml", "--case", "one"]])
+def test_cli_filter_requires_native_mode(arguments):
+    finished = cli(*arguments, "--native-filter", "Suite.*")
+    assert finished.returncode == 2
+    assert "--native-filter requires --native-tests" in finished.stderr
+
+
+@pytest.mark.parametrize("arguments", [["--case", "one"], ["--list-tests"], ["--fail-fast"], ["suite.yaml"]])
+def test_cli_filter_rejects_yaml_selection_combinations(tmp_path, arguments):
+    finished = cli("--native-tests", tmp_path / "missing", "--native-filter", "Suite.*", *arguments)
+    assert finished.returncode == 2
+    assert "cannot be combined" in finished.stderr or "provide either" in finished.stderr
+    assert "not found" not in finished.stderr
+
+
+@pytest.mark.parametrize("pattern", ["", "   ", "Suite.\nCase"])
+def test_cli_filter_rejects_invalid_patterns(tmp_path, pattern):
+    finished = cli("--native-tests", tmp_path / "missing", "--native-filter", pattern)
+    assert finished.returncode == 2
+    assert "Native filter must be a non-empty string" in finished.stderr
+    assert "Traceback" not in finished.stderr
+
+
+def test_cli_filter_no_matches_is_an_explicit_error(gtest_executable):
+    finished = cli(
+        "--native-tests", gtest_executable('<testsuites tests="0"/>'),
+        "--native-filter", "Missing.*", "--quiet",
+    )
+    assert finished.returncode == 2
+    assert "Native filter matched no tests" in finished.stderr
+    assert "passed" not in finished.stdout
