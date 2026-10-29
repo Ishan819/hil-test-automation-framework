@@ -44,3 +44,26 @@ def test_binary_decoder_rejects_malformed_wire_format():
 
     with pytest.raises(ProtobufError, match="Malformed"):
         parse_result(b"\x80")
+
+
+def test_application_validation_rejects_defaults_versions_and_bad_fields():
+    import pytest
+    from hil_automation.protobuf import ProtobufError, parse_result, serialize_result
+
+    with pytest.raises(ProtobufError, match="schema version"):
+        parse_result(b"")
+    for mutate in [
+        lambda message: setattr(message, "schema_version", 2),
+        lambda message: setattr(message, "run_id", ""),
+        lambda message: message.ClearField("summary"),
+        lambda message: setattr(message.summary, "total", 99),
+        lambda message: setattr(message.cases[0], "status", 99),
+        lambda message: setattr(message.cases[0], "origin", 0),
+        lambda message: setattr(message.cases[0], "duration_ms", float("nan")),
+    ]:
+        message = report_to_proto(sample_report())
+        mutate(message)
+        with pytest.raises(ProtobufError):
+            serialize_result(message)
+        with pytest.raises(ProtobufError):
+            parse_result(message.SerializeToString())
