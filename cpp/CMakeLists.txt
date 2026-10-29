@@ -34,3 +34,51 @@ if(BUILD_TESTING AND HIL_BUILD_REPORTING_FIXTURE)
     target_link_libraries(hil_reporting_fixture PRIVATE GTest::gtest_main)
     set_target_properties(hil_reporting_fixture PROPERTIES CXX_EXTENSIONS OFF)
 endif()
+
+# Build protoc and its C++ runtime together; never use an unrelated system library.
+include(FetchContent)
+set(CMAKE_CXX_STANDARD 17)
+set(CMAKE_CXX_STANDARD_REQUIRED ON)
+set(protobuf_BUILD_TESTS OFF CACHE BOOL "" FORCE)
+set(protobuf_INSTALL OFF CACHE BOOL "" FORCE)
+set(protobuf_BUILD_LIBUPB ON CACHE BOOL "" FORCE)
+set(protobuf_WITH_ZLIB OFF CACHE BOOL "" FORCE)
+set(protobuf_FORCE_FETCH_DEPENDENCIES ON CACHE BOOL "" FORCE)
+set(ABSL_PROPAGATE_CXX_STD ON CACHE BOOL "" FORCE)
+# The Abseil revision used by Protobuf v33.6 (20250512.1).
+FetchContent_Declare(absl
+    GIT_REPOSITORY https://github.com/abseil/abseil-cpp.git
+    GIT_TAG 76bb24329e8bf5f39704eb10d21b9a80befa7c81
+)
+FetchContent_Declare(
+    protobuf
+    GIT_REPOSITORY https://github.com/protocolbuffers/protobuf.git
+    # Protobuf v33.6; compiler and runtime use this exact revision.
+    GIT_TAG 6e1998413a5bca7c058b85999667893f167434bc
+    GIT_SUBMODULES ""
+)
+FetchContent_MakeAvailable(protobuf)
+
+set(HIL_SCHEMA "${CMAKE_CURRENT_SOURCE_DIR}/../proto/hil_results.proto")
+set(HIL_PROTO_OUTPUT "${CMAKE_CURRENT_BINARY_DIR}/generated")
+file(MAKE_DIRECTORY "${HIL_PROTO_OUTPUT}")
+add_custom_command(
+    OUTPUT "${HIL_PROTO_OUTPUT}/hil_results.pb.cc" "${HIL_PROTO_OUTPUT}/hil_results.pb.h"
+    COMMAND protobuf::protoc
+    ARGS "--proto_path=${CMAKE_CURRENT_SOURCE_DIR}/../proto"
+         "--cpp_out=${HIL_PROTO_OUTPUT}" "${HIL_SCHEMA}"
+    DEPENDS protobuf::protoc "${HIL_SCHEMA}"
+    VERBATIM
+)
+add_library(hil_result_proto "${HIL_PROTO_OUTPUT}/hil_results.pb.cc")
+target_include_directories(hil_result_proto PUBLIC "${HIL_PROTO_OUTPUT}")
+target_link_libraries(hil_result_proto PUBLIC protobuf::libprotobuf)
+target_compile_features(hil_result_proto PUBLIC cxx_std_17)
+
+find_package(Python3 3.10 REQUIRED COMPONENTS Interpreter)
+add_custom_target(check_python_proto
+    COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/../tools/generate_proto.py"
+            --protoc "$<TARGET_FILE:protobuf::protoc>" --check
+    DEPENDS protobuf::protoc
+    VERBATIM
+)
