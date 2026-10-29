@@ -28,3 +28,10 @@ To include the optional mixed-outcome reporting fixture, configure with
 Run `python -m pytest -q -m native_integration` for real-binary reporting tests.
 These tests skip when their binaries are absent; CI builds and requires both.
 The intentionally failing fixture is separate from the passing CTest suite.
+
+## Protobuf development
+
+Python bindings are tracked; C++ bindings and compiled dependencies stay in `build/`.
+Use Protobuf 33.6 (Python runtime 6.33.6) throughout. Regenerate Python bindings with
+`python tools/generate_proto.py --protoc /path/to/protoc`; add `--check` to verify
+that tracked bindings match the schema. Do not edit generated bindings manually.
