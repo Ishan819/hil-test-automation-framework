@@ -67,3 +67,70 @@ def test_application_validation_rejects_defaults_versions_and_bad_fields():
             serialize_result(message)
         with pytest.raises(ProtobufError):
             parse_result(message.SerializeToString())
+
+
+def test_skipped_cases_and_failure_details_round_trip():
+    from hil_automation.protobuf import parse_result, serialize_result
+
+    report = run_suite(Suite("fail-fast", {}, [
+        HilTestCase("fails", [{"action": "expect_temperature_below", "limit_c": 0}]),
+        HilTestCase("later", [{"action": "expect_heartbeat"}]),
+    ]), fail_fast=True)
+    decoded = parse_result(serialize_result(report_to_proto(report)))
+    assert [case.status for case in decoded.cases] == [pb.FAILED, pb.SKIPPED]
+    assert decoded.cases[0].details == report.results[0].details
+    assert decoded.cases[0].failure_category == "assertion_failure"
+    assert decoded.cases[1].steps[0].status == pb.SKIPPED
+    assert decoded.cases[1].duration_ms == 0
+    assert (decoded.summary.passed, decoded.summary.failed, decoded.summary.skipped) == (0, 1, 1)
+
+
+def test_proto_defaults_are_not_application_valid_and_zero_case_runs_are_valid():
+    import pytest
+    from hil_automation.protobuf import ProtobufError, parse_result, serialize_result
+
+    defaults = pb.RunResult()
+    assert defaults.schema_version == defaults.summary.total == 0
+    assert not defaults.HasField("summary")
+    with pytest.raises(ProtobufError):
+        serialize_result(defaults)
+    empty = report_to_proto(run_suite(Suite("empty", {}, [])))
+    assert parse_result(serialize_result(empty)) == empty
+
+
+def test_unknown_fields_survive_within_supported_application_version():
+    from hil_automation.protobuf import parse_result, serialize_result
+
+    payload = serialize_result(report_to_proto(sample_report()))
+    unknown = b"\x98\x06\x07"  # Future field 99, varint 7.
+    assert serialize_result(parse_result(payload + unknown)).endswith(unknown)
+
+
+def test_invalid_application_values_and_wire_payloads():
+    import pytest
+    from hil_automation.protobuf import ProtobufError, parse_result, serialize_result
+
+    mutations = [
+        lambda message: setattr(message.cases[0], "name", " "),
+        lambda message: setattr(message.cases[0], "duration_ms", -1),
+        lambda message: setattr(message.summary, "duration_ms", float("inf")),
+        lambda message: setattr(message.cases[1], "details", ""),
+        lambda message: setattr(message.cases[0].steps[0], "index", 3),
+        lambda message: setattr(message.cases[0].steps[0], "action", ""),
+        lambda message: setattr(message.cases[0].steps[0], "status", pb.DISABLED),
+        lambda message: setattr(message.cases[0], "status", pb.DISABLED),
+        lambda message: message.cases.add().CopyFrom(message.cases[0]),
+        lambda message: setattr(message, "native_exit_code", 1),
+    ]
+    for mutate in mutations:
+        message = report_to_proto(sample_report())
+        mutate(message)
+        with pytest.raises(ProtobufError):
+            parse_result(message.SerializeToString())
+    for payload in (None, "text", bytearray(), b"\xff", b"\x80"):
+        with pytest.raises(ProtobufError):
+            parse_result(payload)
+    with pytest.raises(ProtobufError, match="16 MiB"):
+        parse_result(b"\x00" * (16 * 1024 * 1024 + 1))
+    with pytest.raises(ProtobufError, match="Expected a RunResult"):
+        serialize_result(object())
