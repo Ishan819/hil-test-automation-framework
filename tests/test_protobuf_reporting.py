@@ -57,3 +57,68 @@ def test_mixed_report_preserves_python_steps_and_native_suite_names():
     assert len(decoded.cases[0].steps) == 1
     assert not decoded.cases[1].steps
     assert not decoded.HasField("native_exit_code")
+
+
+def test_atomic_binary_replacement_and_failure_cleanup(tmp_path, monkeypatch):
+    import pytest
+    from hil_automation import reporting
+
+    destination = tmp_path / "result.pb"
+    report = run_suite(Suite("binary", {}, []))
+    reporting.write_protobuf_report(report, destination)
+    before = destination.read_bytes()
+    replacement = run_suite(Suite("replacement", {}, []))
+    replace = reporting.os.replace
+
+    def inspect(source, target):
+        assert source.parent == destination.parent
+        assert destination.read_bytes() == before
+        assert parse_result(source.read_bytes()).run_id == replacement.run_id
+        replace(source, target)
+
+    monkeypatch.setattr(reporting.os, "replace", inspect)
+    reporting.write_protobuf_report(replacement, destination)
+    assert parse_result(destination.read_bytes()).run_id == replacement.run_id
+
+    def denied(source, target):
+        raise PermissionError("replacement denied")
+
+    monkeypatch.setattr(reporting.os, "replace", denied)
+    previous = destination.read_bytes()
+    with pytest.raises(reporting.ReportError, match="replacement denied"):
+        reporting.write_protobuf_report(report, destination)
+    assert destination.read_bytes() == previous
+    assert list(tmp_path.iterdir()) == [destination]
+
+
+def test_binary_writer_refuses_unrelated_files_and_symlinks(tmp_path):
+    import pytest
+    from hil_automation.reporting import ReportError, write_protobuf_report
+
+    report = run_suite(Suite("safe", {}, []))
+    unrelated = tmp_path / "suite.yaml"
+    unrelated.write_text("suite: existing", encoding="utf-8")
+    with pytest.raises(ReportError, match="unrelated or invalid"):
+        write_protobuf_report(report, unrelated)
+    assert unrelated.read_text() == "suite: existing"
+    link = tmp_path / "link.pb"
+    link.symlink_to(unrelated)
+    with pytest.raises(ReportError, match="symbolic link"):
+        write_protobuf_report(report, link)
+    assert link.is_symlink()
+    assert unrelated.read_text() == "suite: existing"
+
+
+def test_binary_serialization_failure_does_not_touch_report(tmp_path):
+    import pytest
+    from hil_automation.reporting import ReportError, write_protobuf_report
+
+    destination = tmp_path / "result.pb"
+    report = run_suite(Suite("valid", {}, []))
+    write_protobuf_report(report, destination)
+    original = destination.read_bytes()
+    report.duration_ms = float("nan")
+    with pytest.raises(ReportError, match="Cannot serialize Protobuf report"):
+        write_protobuf_report(report, destination)
+    assert destination.read_bytes() == original
+    assert list(tmp_path.iterdir()) == [destination]

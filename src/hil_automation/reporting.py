@@ -13,13 +13,14 @@ class ReportError(ValueError):
     """A report could not be serialized or saved."""
 
 
-def _atomic_write(path: str | Path, content: str) -> None:
+def _atomic_write(path: str | Path, content: str | bytes) -> None:
     destination = Path(path)
     destination.parent.mkdir(parents=True, exist_ok=True)
     temporary: Path | None = None
     try:
         with tempfile.NamedTemporaryFile(
-            mode="w", encoding="utf-8", dir=destination.parent,
+            mode="wb" if isinstance(content, bytes) else "w",
+            encoding=None if isinstance(content, bytes) else "utf-8", dir=destination.parent,
             prefix=f".{destination.name}.", suffix=".tmp", delete=False,
         ) as stream:
             temporary = Path(stream.name)
@@ -130,3 +131,24 @@ def protobuf_report(report: RunReport) -> bytes:
         return serialize_result(report_to_proto(report))
     except (TypeError, ValueError, OverflowError) as exc:
         raise ReportError(f"Cannot serialize Protobuf report: {exc}") from exc
+
+
+def write_protobuf_report(report: RunReport, path: str | Path) -> None:
+    """Replace binary reports atomically; refuse links and unrelated existing files."""
+    from .protobuf import parse_result
+
+    content = protobuf_report(report)
+    destination = Path(path)
+    try:
+        if destination.is_symlink():
+            raise ReportError("Refusing to replace a symbolic link")
+        if destination.exists():
+            try:
+                if destination.stat().st_size > 16 * 1024 * 1024:
+                    raise ValueError("File exceeds supported report size")
+                parse_result(destination.read_bytes())
+            except (OSError, ValueError) as exc:
+                raise ReportError("Refusing to replace an unrelated or invalid report file") from exc
+        _atomic_write(destination, content)
+    except (OSError, ValueError) as exc:
+        raise ReportError(f"Cannot write Protobuf report to {str(path)!r}: {exc}") from exc
