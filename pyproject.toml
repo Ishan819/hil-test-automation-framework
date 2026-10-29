@@ -21,4 +21,7 @@ where = ["src"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
-markers = ["native_integration: requires an explicitly configured or locally built GoogleTest binary"]
+markers = [
+    "native_integration: requires an explicitly configured or locally built GoogleTest binary",
+    "protobuf_integration: requires the compiled Protobuf interoperability utility",
+]

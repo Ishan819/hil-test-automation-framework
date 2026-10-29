@@ -53,3 +53,8 @@ def compiled_gtest_binary():
 @pytest.fixture
 def compiled_reporting_binary():
     return _compiled_binary("HIL_NATIVE_REPORTING_BINARY", "hil_reporting_fixture")
+
+
+@pytest.fixture
+def compiled_proto_binary():
+    return _compiled_binary("HIL_PROTO_EXCHANGE_BINARY", "hil_proto_exchange")
