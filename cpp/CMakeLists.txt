@@ -93,3 +93,6 @@ if(BUILD_TESTING)
     target_link_libraries(hil_proto_tests PRIVATE hil_protobuf_results GTest::gtest_main)
     gtest_discover_tests(hil_proto_tests)
 endif()
+
+add_executable(hil_proto_exchange src/proto_exchange.cpp)
+target_link_libraries(hil_proto_exchange PRIVATE hil_protobuf_results)
