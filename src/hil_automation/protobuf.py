@@ -41,3 +41,22 @@ def report_to_proto(report: RunReport) -> pb.RunResult:
                 failure_category=step.failure_category or "",
             )
     return result
+
+
+def serialize_result(message: pb.RunResult) -> bytes:
+    if not isinstance(message, pb.RunResult):
+        raise ProtobufError("Expected a RunResult message")
+    return message.SerializeToString(deterministic=True)
+
+
+def parse_result(payload: bytes) -> pb.RunResult:
+    from google.protobuf.message import DecodeError
+
+    if not isinstance(payload, bytes):
+        raise ProtobufError("Protobuf payload must be bytes")
+    message = pb.RunResult()
+    try:
+        message.ParseFromString(payload)
+    except DecodeError as exc:
+        raise ProtobufError("Malformed Protobuf result payload") from exc
+    return message

@@ -26,3 +26,21 @@ def test_python_mapping_preserves_identifiers_outcomes_and_steps():
     assert message.cases[1].failure_category == "assertion_failure"
     assert [step.status for step in message.cases[1].steps] == [pb.PASSED, pb.FAILED, pb.SKIPPED]
     assert message.summary.duration_ms == report.duration_ms
+
+
+def test_binary_round_trip_preserves_message():
+    from hil_automation.protobuf import parse_result, serialize_result
+
+    original = report_to_proto(sample_report())
+    payload = serialize_result(original)
+    assert isinstance(payload, bytes)
+    assert parse_result(payload) == original
+    assert serialize_result(parse_result(payload)) == payload
+
+
+def test_binary_decoder_rejects_malformed_wire_format():
+    import pytest
+    from hil_automation.protobuf import ProtobufError, parse_result
+
+    with pytest.raises(ProtobufError, match="Malformed"):
+        parse_result(b"\x80")
