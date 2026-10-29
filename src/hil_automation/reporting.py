@@ -120,3 +120,13 @@ def native_report(result: NativeResult) -> RunReport:
         results=[], native_results=list(result.cases), native_exit_code=result.exit_code,
         duration_ms=result.duration_ms, finished_at=result.finished_at,
     )
+
+
+def protobuf_report(report: RunReport) -> bytes:
+    """Serialize an existing report through the shared Protobuf adapter."""
+    from .protobuf import report_to_proto, serialize_result
+
+    try:
+        return serialize_result(report_to_proto(report))
+    except (TypeError, ValueError, OverflowError) as exc:
+        raise ReportError(f"Cannot serialize Protobuf report: {exc}") from exc
