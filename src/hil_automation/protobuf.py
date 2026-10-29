@@ -20,14 +20,12 @@ def _status(value: str) -> int:
 
 
 def report_to_proto(report: RunReport) -> pb.RunResult:
-    if report.native_results or report.native_exit_code is not None:
-        raise ProtobufError("Native Protobuf mapping is not available yet")
     result = pb.RunResult(
         schema_version=1, run_id=report.run_id, suite=report.suite,
         started_at=report.started_at, finished_at=report.finished_at,
     )
     result.summary.CopyFrom(pb.RunSummary(
-        total=len(report.results), passed=report.passed, failed=report.failed,
+        total=len(report.results) + len(report.native_results), passed=report.passed, failed=report.failed,
         skipped=report.skipped, duration_ms=report.duration_ms,
     ))
     for case in report.results:
@@ -42,6 +40,14 @@ def report_to_proto(report: RunReport) -> pb.RunResult:
                 duration_ms=step.duration_ms, details=step.details,
                 failure_category=step.failure_category or "",
             )
+    for case in report.native_results:
+        result.cases.add(
+            suite=case.suite, name=case.name, status=_status(case.status),
+            duration_ms=case.duration_ms, details=case.details, origin=pb.NATIVE,
+            failure_category="native_test_failure" if case.status == "failed" else "",
+        )
+    if report.native_exit_code is not None:
+        result.native_exit_code = report.native_exit_code
     validate_result(result)
     return result
 
