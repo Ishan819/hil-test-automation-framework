@@ -1,0 +1,59 @@
+syntax = "proto3";
+
+package hil.results.v1;
+
+// Field numbers are permanent. Reserve removed numbers rather than reusing them.
+enum Status {
+  STATUS_UNSPECIFIED = 0;
+  PASSED = 1;
+  FAILED = 2;
+  SKIPPED = 3;
+  DISABLED = 4;
+}
+
+enum Origin {
+  ORIGIN_UNSPECIFIED = 0;
+  PYTHON = 1;
+  NATIVE = 2;
+}
+
+message StepResult {
+  uint32 index = 1;
+  string action = 2;
+  Status status = 3;
+  double duration_ms = 4;
+  string details = 5;
+  string failure_category = 6;
+}
+
+message CaseResult {
+  string suite = 1;
+  string name = 2;
+  Status status = 3;
+  double duration_ms = 4;
+  string details = 5;
+  string failure_category = 6;
+  repeated StepResult steps = 7;
+  Origin origin = 8;
+}
+
+message RunSummary {
+  uint32 total = 1;
+  uint32 passed = 2;
+  uint32 failed = 3;
+  // Includes disabled native cases, preserving the existing report convention.
+  uint32 skipped = 4;
+  double duration_ms = 5;
+}
+
+message RunResult {
+  // Binary application schema version; distinct from the JSON schema string.
+  uint32 schema_version = 1;
+  string run_id = 2;
+  string suite = 3;
+  string started_at = 4;
+  string finished_at = 5;
+  RunSummary summary = 6;
+  repeated CaseResult cases = 7;
+  optional int32 native_exit_code = 8;
+}
