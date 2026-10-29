@@ -82,3 +82,8 @@ add_custom_target(check_python_proto
     DEPENDS protobuf::protoc
     VERBATIM
 )
+
+add_library(hil_protobuf_results src/protobuf_results.cpp)
+target_include_directories(hil_protobuf_results PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}/include")
+target_link_libraries(hil_protobuf_results PUBLIC hil_result_proto hil_simulated_bench)
+target_compile_features(hil_protobuf_results PUBLIC cxx_std_17)
