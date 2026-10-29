@@ -5,7 +5,7 @@ from pathlib import Path
 
 from .config import Suite, load_suite
 from .native import NativeExecutionError, run_native_tests
-from .reporting import native_report, write_json_report, write_junit_report
+from .reporting import native_report, write_json_report, write_junit_report, write_protobuf_report
 from .runner import run_suite
 
 
@@ -33,19 +33,21 @@ def _run_native(args: argparse.Namespace) -> int:
         return 2
     if report_requested:
         report_format = args.report_format or "json"
-        suffix = "json" if report_format == "json" else "xml"
+        suffix = {"json": "json", "junit": "xml", "protobuf": "pb"}[report_format]
         output = Path(args.report) if args.report is not None else Path(f"reports/latest.{suffix}")
         try:
             report = native_report(result)
             if report_format == "json":
                 write_json_report(report, output)
-            else:
+            elif report_format == "junit":
                 write_junit_report(report, output)
+            else:
+                write_protobuf_report(report, output)
         except (ValueError, OSError) as exc:
             print(f"Error: {exc}", file=sys.stderr)
             return 2
         if not args.quiet:
-            label = "JSON" if report_format == "json" else "JUnit XML"
+            label = {"json": "JSON", "junit": "JUnit XML", "protobuf": "Protobuf"}[report_format]
             print(f"{label} report: {output}")
     if structured:
         if not args.quiet:
@@ -82,11 +84,11 @@ def main() -> int:
         help="Native process timeout in seconds (default: 30; requires --native-tests)",
     )
     parser.add_argument(
-        "--report", help="Output path (default: reports/latest.json or reports/latest.xml)",
+        "--report", help="Output path (default: reports/latest.json, .xml, or .pb for the selected format)",
     )
     parser.add_argument(
-        "--report-format", choices=("json", "junit"),
-        help="Report format: json (default) or junit (JUnit XML)",
+        "--report-format", choices=("json", "junit", "protobuf"),
+        help="Report format: json (default), junit (JUnit XML), or protobuf (binary)",
     )
     selection = parser.add_mutually_exclusive_group()
     selection.add_argument(
@@ -135,12 +137,14 @@ def main() -> int:
                 )
             suite = Suite(suite.name, suite.bench, selected)
         result = run_suite(suite, fail_fast=args.fail_fast)
-        suffix = "json" if args.report_format == "json" else "xml"
+        suffix = {"json": "json", "junit": "xml", "protobuf": "pb"}[args.report_format]
         output = Path(args.report) if args.report is not None else Path(f"reports/latest.{suffix}")
         if args.report_format == "json":
             write_json_report(result, output)
-        else:
+        elif args.report_format == "junit":
             write_junit_report(result, output)
+        else:
+            write_protobuf_report(result, output)
     except (ValueError, OSError) as exc:
         print(f"Error: {exc}", file=sys.stderr)
         return 2
@@ -160,7 +164,7 @@ def main() -> int:
         summary += f", {result.skipped} skipped"
     print(summary)
     if not args.quiet:
-        label = "JSON" if args.report_format == "json" else "JUnit XML"
+        label = {"json": "JSON", "junit": "JUnit XML", "protobuf": "Protobuf"}[args.report_format]
         print(f"{label} report: {output}")
     return 1 if result.failed else 0
 
