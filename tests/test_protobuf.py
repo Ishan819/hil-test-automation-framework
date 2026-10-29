@@ -134,3 +134,13 @@ def test_invalid_application_values_and_wire_payloads():
         parse_result(b"\x00" * (16 * 1024 * 1024 + 1))
     with pytest.raises(ProtobufError, match="Expected a RunResult"):
         serialize_result(object())
+
+
+def test_oversized_serialized_results_are_rejected_before_writing():
+    import pytest
+    from hil_automation.protobuf import MAX_PAYLOAD_BYTES, ProtobufError, serialize_result
+
+    message = report_to_proto(sample_report())
+    message.cases[0].details = "x" * MAX_PAYLOAD_BYTES
+    with pytest.raises(ProtobufError, match="16 MiB"):
+        serialize_result(message)

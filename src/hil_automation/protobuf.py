@@ -9,6 +9,9 @@ class ProtobufError(ValueError):
     """Binary results are malformed or violate the application schema."""
 
 
+MAX_PAYLOAD_BYTES = 16 * 1024 * 1024
+
+
 _STATUSES = {"passed": pb.PASSED, "failed": pb.FAILED, "skipped": pb.SKIPPED, "disabled": pb.DISABLED}
 
 
@@ -56,7 +59,10 @@ def serialize_result(message: pb.RunResult) -> bytes:
     if not isinstance(message, pb.RunResult):
         raise ProtobufError("Expected a RunResult message")
     validate_result(message)
-    return message.SerializeToString(deterministic=True)
+    payload = message.SerializeToString(deterministic=True)
+    if len(payload) > MAX_PAYLOAD_BYTES:
+        raise ProtobufError("Protobuf payload exceeds 16 MiB")
+    return payload
 
 
 def parse_result(payload: bytes) -> pb.RunResult:
@@ -64,7 +70,7 @@ def parse_result(payload: bytes) -> pb.RunResult:
 
     if not isinstance(payload, bytes):
         raise ProtobufError("Protobuf payload must be bytes")
-    if len(payload) > 16 * 1024 * 1024:
+    if len(payload) > MAX_PAYLOAD_BYTES:
         raise ProtobufError("Protobuf payload exceeds 16 MiB")
     message = pb.RunResult()
     try:

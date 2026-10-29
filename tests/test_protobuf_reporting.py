@@ -122,3 +122,32 @@ def test_binary_serialization_failure_does_not_touch_report(tmp_path):
         write_protobuf_report(report, destination)
     assert destination.read_bytes() == original
     assert list(tmp_path.iterdir()) == [destination]
+
+
+def test_partial_binary_write_failure_cleans_temp_and_preserves_old_report(tmp_path, monkeypatch):
+    from contextlib import contextmanager
+    import pytest
+    from hil_automation import reporting
+
+    report = run_suite(Suite("partial", {}, []))
+    destination = tmp_path / "old.pb"
+    reporting.write_protobuf_report(report, destination)
+    previous = destination.read_bytes()
+    factory = reporting.tempfile.NamedTemporaryFile
+
+    @contextmanager
+    def broken_file(**kwargs):
+        with factory(**kwargs) as stream:
+            class BrokenWriter:
+                name = stream.name
+
+                def write(self, content):
+                    stream.write(content[:2])
+                    raise OSError("partial write failed")
+            yield BrokenWriter()
+
+    monkeypatch.setattr(reporting.tempfile, "NamedTemporaryFile", broken_file)
+    with pytest.raises(reporting.ReportError, match="partial write failed"):
+        reporting.write_protobuf_report(report, destination)
+    assert destination.read_bytes() == previous
+    assert list(tmp_path.iterdir()) == [destination]

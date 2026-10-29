@@ -35,3 +35,15 @@ Python bindings are tracked; C++ bindings and compiled dependencies stay in `bui
 Use Protobuf 33.6 (Python runtime 6.33.6) throughout. Regenerate Python bindings with
 `python tools/generate_proto.py --protoc /path/to/protoc`; add `--check` to verify
 that tracked bindings match the schema. Do not edit generated bindings manually.
+
+CMake builds `protoc` and the C++ runtime from the same pinned source revision;
+no system C++ Protobuf library is used. After building, run
+`cmake --build build/cpp --target check_python_proto` to check Python generation.
+Use `--report-format protobuf` with YAML or native CLI commands for binary reports
+(default: `reports/latest.pb`). Existing binary reports may be replaced; unrelated
+files and symlinks are refused.
+
+Run `python -m pytest -q -m protobuf_integration` for real bidirectional exchange tests.
+The utility supports `hil_proto_exchange produce OUTPUT RUN_ID [--fault]`,
+`verify INPUT`, and `roundtrip INPUT OUTPUT`; it never replaces existing output files.
+Its exit code describes successful validation/serialization, not the contained test outcomes.

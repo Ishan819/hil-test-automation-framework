@@ -115,3 +115,55 @@ def test_cpp_preserves_unknown_fields_and_refuses_output_overwrite(compiled_prot
     previous = output.read_bytes()
     assert subprocess.run(command, capture_output=True).returncode == 2
     assert output.read_bytes() == previous
+
+
+@pytest.mark.parametrize("fault", [False, True])
+def test_real_native_cli_binary_report_survives_cpp_roundtrip(
+    compiled_proto_binary, compiled_gtest_binary, compiled_reporting_binary, tmp_path, fault,
+):
+    import sys
+
+    binary = compiled_reporting_binary if fault else compiled_gtest_binary
+    output, returned = tmp_path / "cli.pb", tmp_path / "returned.pb"
+    arguments = [
+        sys.executable, "-m", "hil_automation.cli", "--native-tests", str(binary),
+        "--report-format", "protobuf", "--report", str(output), "--quiet",
+    ]
+    if not fault:
+        arguments.extend(["--native-filter", "SimulatedBenchTest.Accepts*"])
+    finished = subprocess.run(arguments, capture_output=True, text=True)
+    assert finished.returncode == (1 if fault else 0), finished.stderr
+    message = parse_result(output.read_bytes())
+    assert message.summary.total == (4 if fault else 2)
+    assert message.summary.failed == (1 if fault else 0)
+    assert message.summary.skipped == (2 if fault else 0)
+    assert all(case.origin == pb.NATIVE for case in message.cases)
+    if not fault:
+        assert [case.name for case in message.cases] == [
+            "AcceptsVoltageIncludingBoundaries", "AcceptsTemperatureIncludingBoundaries",
+        ]
+    exchanged = subprocess.run(
+        [str(compiled_proto_binary), "roundtrip", str(output), str(returned)],
+        capture_output=True, text=True,
+    )
+    assert exchanged.returncode == 0, exchanged.stderr
+    assert parse_result(returned.read_bytes()) == message
+
+
+def test_cpp_rejects_python_unknown_origin_and_missing_failure_details(compiled_proto_binary, tmp_path):
+    from hil_automation.config import Suite, TestCase as HilTestCase
+    from hil_automation.protobuf import report_to_proto
+    from hil_automation.runner import run_suite
+
+    for field, value in [("origin", 0), ("details", "")]:
+        message = report_to_proto(run_suite(Suite("invalid-fields", {}, [
+            HilTestCase("failed", [{"action": "expect_temperature_below", "limit_c": 0}]),
+        ])))
+        setattr(message.cases[0], field, value)
+        output = tmp_path / "invalid.pb"
+        output.write_bytes(message.SerializeToString())
+        finished = subprocess.run(
+            [str(compiled_proto_binary), "verify", str(output)], capture_output=True, text=True,
+        )
+        assert finished.returncode == 2
+        assert "Error:" in finished.stderr
