@@ -41,6 +41,8 @@ jobs:
         run: cmake -S cpp -B build/cpp -DHIL_BUILD_REPORTING_FIXTURE=ON
       - name: Build C++ tests
         run: cmake --build build/cpp --parallel 2
+      - name: Verify pinned Protobuf generation
+        run: cmake --build build/cpp --target check_python_proto --parallel 2
       - name: Run GoogleTest through CTest
         run: ctest --test-dir build/cpp --output-on-failure --no-tests=error
       - name: Capture native JSON results through the CLI
@@ -49,8 +51,13 @@ jobs:
         run: hil-run --native-tests build/cpp/hil_bench_tests --report-format junit --report reports/native.xml --quiet
       - name: Verify filtered native execution
         run: hil-run --native-tests build/cpp/hil_bench_tests --native-filter 'SimulatedBenchTest.StartsWithSafeDefaults' --report reports/native-filtered.json --quiet
-      - name: Verify native reporting integration
+      - name: Write Python Protobuf report
+        run: hil-run scenarios/smoke.yaml --report-format protobuf --report reports/smoke.pb
+      - name: Write filtered native Protobuf report
+        run: hil-run --native-tests build/cpp/hil_bench_tests --native-filter 'SimulatedBenchTest.Accepts*' --report-format protobuf --report reports/native-filtered.pb --quiet
+      - name: Verify native and cross-language reporting integration
         env:
           HIL_NATIVE_TEST_BINARY: build/cpp/hil_bench_tests
           HIL_NATIVE_REPORTING_BINARY: build/cpp/hil_reporting_fixture
-        run: python -m pytest -q -m native_integration
+          HIL_PROTO_EXCHANGE_BINARY: build/cpp/hil_proto_exchange
+        run: python -m pytest -q -m "native_integration or protobuf_integration"
