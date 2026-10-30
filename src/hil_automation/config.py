@@ -12,6 +12,7 @@ from .bench import SimulatedBench
 class TestCase:
     name: str
     steps: list[dict[str, Any]]
+    tags: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -97,5 +98,5 @@ def load_suite(path: str | Path) -> Suite:
                 raise ValueError("Voltage tolerance cannot be negative")
             if action == "set_voltage" and not 0 <= step["value"] <= 24:
                 raise ValueError("Voltage must be between 0 and 24 V")
-        tests.append(TestCase(name=test_name, steps=steps))
+        tests.append(TestCase(name=test_name, steps=steps, tags=tuple(item.get("tags", []))))
     return Suite(name=name, bench=bench, tests=tests)
