@@ -49,6 +49,12 @@ class CaseResult:
     failure_category: str | None = None
     attempts: list[AttemptResult] = field(default_factory=list)
 
+    def history_dict(self) -> dict:
+        return {
+            "retry_count": self.retry_count, "passed_after_retry": self.passed_after_retry,
+            "attempts": [asdict(attempt) for attempt in self.attempts],
+        }
+
     @property
     def retry_count(self) -> int:
         return max(0, len(self.attempts) - 1)
@@ -85,7 +91,17 @@ class RunReport:
             "started_at": self.started_at,
             "finished_at": self.finished_at,
         }
-        steps = [step for case in self.results for step in case.steps]
+        steps = []
+        for case in self.results:
+            steps.extend(
+                [step for attempt in case.attempts for step in attempt.steps]
+                if case.attempts else case.steps
+            )
+        payload["retry_summary"] = {
+            "total_attempts": sum(len(case.attempts) for case in self.results),
+            "retries": sum(case.retry_count for case in self.results),
+            "passed_after_retry": sum(case.passed_after_retry for case in self.results),
+        }
         payload["statistics"] = {
             "total_cases": len(self.results) + len(self.native_results),
             "passed_cases": self.passed,

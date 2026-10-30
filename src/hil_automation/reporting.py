@@ -93,6 +93,9 @@ def junit_xml(report: RunReport) -> str:
             diagnostic.text = _xml_text(case.details)
         elif case.status == "skipped":
             ET.SubElement(element, "skipped", {"message": _xml_text(case.details)})
+        if case.retry_count:
+            history = ET.SubElement(element, "system-out")
+            history.text = _xml_text(json.dumps(case.history_dict(), allow_nan=False))
     return ET.tostring(root, encoding="unicode", xml_declaration=True) + "\n"
 
 

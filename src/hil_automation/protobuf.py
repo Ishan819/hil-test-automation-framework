@@ -1,4 +1,5 @@
 """Map HIL reports to the shared binary schema."""
+import json
 import math
 
 from .proto import hil_results_pb2 as pb
@@ -37,6 +38,8 @@ def report_to_proto(report: RunReport) -> pb.RunResult:
             duration_ms=case.duration_ms, details=case.details,
             failure_category=case.failure_category or "", origin=pb.PYTHON,
         )
+        if case.retry_count:
+            target.details += "\nRetry history: " + json.dumps(case.history_dict(), allow_nan=False)
         for step in case.steps:
             target.steps.add(
                 index=step.index, action=step.action, status=_status(step.status),
