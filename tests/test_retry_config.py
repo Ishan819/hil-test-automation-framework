@@ -25,3 +25,20 @@ def test_invalid_retry_counts_are_rejected(tmp_path, value):
         load_suite(retry_suite(tmp_path, retries=value))
     with pytest.raises(ValueError, match="retries"):
         HilTestCase("direct", [{"action": "expect_heartbeat"}], retries=value)
+
+
+@pytest.mark.parametrize("value", range(MAX_RETRIES + 1))
+def test_each_supported_retry_count_loads(tmp_path, value):
+    assert load_suite(retry_suite(tmp_path, retries=value)).tests[0].retries == value
+
+
+@pytest.mark.parametrize("scenario", ["smoke", "recovery", "faults", "failure_demo"])
+def test_existing_scenarios_have_retries_disabled(scenario):
+    path = Path(__file__).resolve().parents[1] / "scenarios" / f"{scenario}.yaml"
+    assert all(case.retries == 0 for case in load_suite(path).tests)
+
+
+def test_retry_and_tags_configuration_can_coexist(tmp_path):
+    case = load_suite(retry_suite(tmp_path, retries=1, tags=["thermal"])).tests[0]
+    assert case.retries == 1
+    assert case.tags == ("thermal",)
