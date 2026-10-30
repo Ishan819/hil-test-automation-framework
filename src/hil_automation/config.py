@@ -8,11 +8,15 @@ import yaml
 from .bench import SimulatedBench
 
 
+MAX_RETRIES = 3
+
+
 @dataclass(frozen=True)
 class TestCase:
     name: str
     steps: list[dict[str, Any]]
     tags: tuple[str, ...] = ()
+    retries: int = 0
 
 
 @dataclass(frozen=True)
@@ -106,5 +110,5 @@ def load_suite(path: str | Path) -> Suite:
                 raise ValueError("Voltage tolerance cannot be negative")
             if action == "set_voltage" and not 0 <= step["value"] <= 24:
                 raise ValueError("Voltage must be between 0 and 24 V")
-        tests.append(TestCase(name=test_name, steps=steps, tags=tuple(tags)))
+        tests.append(TestCase(name=test_name, steps=steps, tags=tuple(tags), retries=item.get("retries", 0)))
     return Suite(name=name, bench=bench, tests=tests)
