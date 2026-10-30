@@ -58,3 +58,29 @@ def test_unexpected_programming_exceptions_are_not_retried(monkeypatch):
             HilTestCase("bug", [{"action": "expect_heartbeat"}], retries=3),
         ]))
     assert len(calls) == 1
+
+
+def test_later_success_is_visible_and_prior_failure_is_preserved(monkeypatch):
+    from hil_automation import runner
+
+    original = runner.make_bench
+    benches = []
+    def make(config):
+        bench = original(config)
+        if not benches:
+            bench.set_temperature(95)
+        benches.append(bench)
+        return bench
+    monkeypatch.setattr(runner, "make_bench", make)
+    report = run_suite(Suite("recovers", {}, [
+        HilTestCase("thermal", [{"action": "expect_temperature_below", "limit_c": 75}], retries=3),
+    ]))
+    case = report.results[0]
+    assert [attempt.status for attempt in case.attempts] == ["failed", "passed"]
+    assert "95.0" in case.attempts[0].details
+    assert case.passed_after_retry and case.retry_count == 1
+    assert case.details == "Passed on attempt 2 after retry"
+    data = report.to_dict()["results"][0]
+    assert data["passed_after_retry"] is True and data["retry_count"] == 1
+    assert data["attempts"][0]["status"] == "failed"
+    assert report.passed == 1 and report.failed == 0

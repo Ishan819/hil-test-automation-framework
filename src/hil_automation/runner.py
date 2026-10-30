@@ -49,6 +49,14 @@ class CaseResult:
     failure_category: str | None = None
     attempts: list[AttemptResult] = field(default_factory=list)
 
+    @property
+    def retry_count(self) -> int:
+        return max(0, len(self.attempts) - 1)
+
+    @property
+    def passed_after_retry(self) -> bool:
+        return self.status == "passed" and self.retry_count > 0
+
 
 @dataclass
 class RunReport:
@@ -67,6 +75,9 @@ class RunReport:
 
     def to_dict(self) -> dict:
         payload = asdict(self)
+        for case, item in zip(self.results, payload["results"]):
+            item["retry_count"] = case.retry_count
+            item["passed_after_retry"] = case.passed_after_retry
         payload["metadata"] = {
             "python_version": platform.python_version(),
             "system": platform.system(),
@@ -186,9 +197,15 @@ def run_suite(suite: Suite, *, fail_fast: bool = False) -> RunReport:
             if attempt.status == "passed" or not attempt.retryable:
                 break
         final = attempts[-1]
+        details = final.details
+        if len(attempts) > 1:
+            details = (
+                f"Passed on attempt {len(attempts)} after retry" if final.status == "passed"
+                else f"{final.details} ({len(attempts)} attempts exhausted)"
+            )
         results.append(CaseResult(
             test.name, final.status, round(sum(item.duration_ms for item in attempts), 3),
-            final.details, [replace(step) for step in final.steps], final.failure_category, attempts,
+            details, [replace(step) for step in final.steps], final.failure_category, attempts,
         ))
         stopped = fail_fast and final.status == "failed"
     return RunReport(

@@ -200,7 +200,7 @@ def test_filtered_cli_report_compatibility(tmp_path, scenario, name, status, exi
     assert (data["passed"], data["failed"]) == ((1, 0) if exit_code == 0 else (0, 1))
     assert len(data["results"]) == 1
     case = data["results"][0]
-    assert set(case) == {"name", "status", "duration_ms", "details", "steps", "failure_category", "attempts"}
+    assert set(case) == {"name", "status", "duration_ms", "details", "steps", "failure_category", "attempts", "retry_count", "passed_after_retry"}
     assert (case["name"], case["status"], case["details"]) == (name, status, details)
     assert case["duration_ms"] >= 0
     assert data["started_at"]
