@@ -1,5 +1,5 @@
 """Execute YAML steps against a bench and collect structured results."""
-from dataclasses import asdict, dataclass, field
+from dataclasses import asdict, dataclass, field, replace
 from datetime import datetime, timezone
 import platform
 from time import perf_counter
@@ -25,6 +25,16 @@ class StepResult:
 
 
 @dataclass
+class AttemptResult:
+    number: int
+    status: str
+    duration_ms: float
+    details: str
+    steps: list[StepResult] = field(default_factory=list)
+    failure_category: str | None = None
+
+
+@dataclass
 class CaseResult:
     name: str
     status: str
@@ -32,6 +42,7 @@ class CaseResult:
     details: str
     steps: list[StepResult] = field(default_factory=list)
     failure_category: str | None = None
+    attempts: list[AttemptResult] = field(default_factory=list)
 
 
 @dataclass
@@ -159,8 +170,10 @@ def run_suite(suite: Suite, *, fail_fast: bool = False) -> RunReport:
                 steps[-1].failure_category = failure_category
                 status, details = "failed", f"Step {index}: {exc}"
             steps[-1].duration_ms = round((perf_counter() - step_started) * 1000, 3)
+        duration_ms = round((perf_counter() - started) * 1000, 3)
+        attempt = AttemptResult(1, status, duration_ms, details, [replace(step) for step in steps], failure_category)
         results.append(
-            CaseResult(test.name, status, round((perf_counter() - started) * 1000, 3), details, steps, failure_category)
+            CaseResult(test.name, status, duration_ms, details, steps, failure_category, [attempt])
         )
         if fail_fast and status == "failed":
             stopped = True
