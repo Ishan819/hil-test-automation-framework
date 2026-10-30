@@ -79,6 +79,14 @@ def load_suite(path: str | Path) -> Suite:
             raise ValueError(f"Duplicate test name: {test_name}")
         seen_names.add(test_name)
 
+        tags = item.get("tags", [])
+        if not isinstance(tags, list):
+            raise ValueError(f"{test_name}: tags must be a list of strings")
+        if any(not isinstance(tag, str) or not tag.strip() or tag != tag.strip() for tag in tags):
+            raise ValueError(f"{test_name}: tags must contain non-empty names without surrounding whitespace")
+        if len(tags) != len(set(tags)):
+            raise ValueError(f"{test_name}: duplicate tags are not allowed")
+
         steps = item.get("steps")
         if not isinstance(steps, list) or not steps:
             raise ValueError(f"Test '{test_name}' needs at least one step")
@@ -98,5 +106,5 @@ def load_suite(path: str | Path) -> Suite:
                 raise ValueError("Voltage tolerance cannot be negative")
             if action == "set_voltage" and not 0 <= step["value"] <= 24:
                 raise ValueError("Voltage must be between 0 and 24 V")
-        tests.append(TestCase(name=test_name, steps=steps, tags=tuple(item.get("tags", []))))
+        tests.append(TestCase(name=test_name, steps=steps, tags=tuple(tags)))
     return Suite(name=name, bench=bench, tests=tests)

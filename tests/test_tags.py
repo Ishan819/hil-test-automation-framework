@@ -18,3 +18,9 @@ def tagged_suite(tmp_path, tags=None):
 def test_optional_case_tags(tmp_path):
     assert load_suite(tagged_suite(tmp_path, ["smoke", "connection"])).tests[0].tags == ("smoke", "connection")
     assert load_suite(tagged_suite(tmp_path)).tests[0].tags == ()
+
+
+@pytest.mark.parametrize("tags", ["smoke", 1, True, {}, ["", "ok"], [" smoke"], ["smoke", "smoke"], [1], [False]])
+def test_invalid_tag_definitions(tmp_path, tags):
+    with pytest.raises(ValueError, match="tags"):
+        load_suite(tagged_suite(tmp_path, tags))
