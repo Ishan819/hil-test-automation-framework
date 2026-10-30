@@ -84,3 +84,71 @@ def test_later_success_is_visible_and_prior_failure_is_preserved(monkeypatch):
     assert data["passed_after_retry"] is True and data["retry_count"] == 1
     assert data["attempts"][0]["status"] == "failed"
     assert report.passed == 1 and report.failed == 0
+
+
+@pytest.mark.parametrize("retries", [0, 1, 2, 3])
+def test_repeated_failures_stop_at_configured_limit(retries):
+    report = run_suite(Suite("bounded", {}, [
+        HilTestCase("failure", [{"action": "expect_temperature_below", "limit_c": 0}], retries=retries),
+    ]))
+    case = report.results[0]
+    assert len(case.attempts) == retries + 1
+    assert case.retry_count == retries and not case.passed_after_retry
+    assert all(attempt.duration_ms >= 0 for attempt in case.attempts)
+    assert (report.passed, report.failed) == (0, 1)
+
+
+def test_passing_first_attempt_does_not_consume_retry_budget():
+    case = run_suite(Suite("pass", {}, [
+        HilTestCase("healthy", [{"action": "expect_heartbeat"}], retries=3),
+    ])).results[0]
+    assert len(case.attempts) == 1
+    assert case.retry_count == 0 and not case.passed_after_retry
+
+
+def test_retry_state_and_following_case_are_independent_even_with_fail_fast(monkeypatch):
+    from hil_automation import runner
+
+    original = runner.make_bench
+    benches = []
+    def make(config):
+        bench = original(config)
+        if not benches:
+            bench.set_connected(False)
+        benches.append(bench)
+        return bench
+    monkeypatch.setattr(runner, "make_bench", make)
+    report = run_suite(Suite("isolated", {}, [
+        HilTestCase("recover", [
+            {"action": "expect_voltage", "value": 0, "tolerance": 0},
+            {"action": "set_voltage", "value": 5}, {"action": "expect_heartbeat"},
+        ], retries=2),
+        HilTestCase("fresh", [{"action": "expect_voltage", "value": 0, "tolerance": 0}]),
+    ]), fail_fast=True)
+    assert (report.passed, report.failed, report.skipped) == (2, 0, 0)
+    assert [attempt.status for attempt in report.results[0].attempts] == ["failed", "passed"]
+    assert len(benches) == 3 and len({id(bench) for bench in benches}) == 3
+
+
+def test_fail_fast_waits_for_retry_exhaustion_then_skips_later_case():
+    report = run_suite(Suite("fast", {}, [
+        HilTestCase("failure", [{"action": "expect_temperature_below", "limit_c": 0}], retries=2),
+        HilTestCase("later", [{"action": "expect_heartbeat"}], retries=3),
+    ]), fail_fast=True)
+    assert (report.failed, report.skipped) == (1, 1)
+    assert len(report.results[0].attempts) == 3
+    assert report.results[1].attempts == []
+    assert report.results[1].retry_count == 0
+
+
+def test_unexpected_assertions_are_not_automatically_retried(monkeypatch):
+    from hil_automation import runner
+
+    def unexpected(bench, step):
+        raise AssertionError("unexpected internal assertion")
+    monkeypatch.setattr(runner, "execute_step", unexpected)
+    case = run_suite(Suite("bug", {}, [
+        HilTestCase("unexpected", [{"action": "expect_heartbeat"}], retries=3),
+    ])).results[0]
+    assert len(case.attempts) == 1
+    assert not case.attempts[0].retryable

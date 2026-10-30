@@ -35,3 +35,22 @@ def test_attempt_history_is_preserved_across_supported_report_fields(tmp_path):
     assert "28.0" in history["attempts"][0]["details"]
     assert message.summary.failed == 1
     assert len(message.cases[0].steps) == 1
+
+
+import pytest
+
+
+@pytest.mark.protobuf_integration
+def test_retry_diagnostics_remain_compatible_with_real_cpp(compiled_proto_binary, tmp_path):
+    import subprocess
+
+    report = run_suite(Suite("retry-interop", {}, [
+        HilTestCase("failed", [{"action": "expect_temperature_below", "limit_c": 0}], retries=1),
+    ]))
+    source = tmp_path / "retry.pb"
+    source.write_bytes(protobuf_report(report))
+    finished = subprocess.run(
+        [str(compiled_proto_binary), "verify", str(source)], capture_output=True, text=True,
+    )
+    assert finished.returncode == 0, finished.stderr
+    assert "failed=1" in finished.stdout
