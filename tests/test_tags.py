@@ -24,3 +24,23 @@ def test_optional_case_tags(tmp_path):
 def test_invalid_tag_definitions(tmp_path, tags):
     with pytest.raises(ValueError, match="tags"):
         load_suite(tagged_suite(tmp_path, tags))
+
+
+@pytest.mark.parametrize("tags", [[], ["thermal"], ["Smoke", "smoke"], ["thermal", "regression", "connection"]])
+def test_valid_tag_lists_preserve_order_and_case(tmp_path, tags):
+    assert load_suite(tagged_suite(tmp_path, tags)).tests[0].tags == tuple(tags)
+
+
+def test_explicit_null_tags_are_not_treated_as_missing(tmp_path):
+    path = tagged_suite(tmp_path)
+    payload = yaml.safe_load(path.read_text())
+    payload["tests"][0]["tags"] = None
+    path.write_text(yaml.safe_dump(payload))
+    with pytest.raises(ValueError, match="tags must be a list"):
+        load_suite(path)
+
+
+@pytest.mark.parametrize("scenario", ["smoke", "recovery", "faults", "failure_demo"])
+def test_existing_suites_remain_untagged_and_valid(scenario):
+    path = Path(__file__).resolve().parents[1] / "scenarios" / f"{scenario}.yaml"
+    assert all(case.tags == () for case in load_suite(path).tests)
