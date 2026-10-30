@@ -18,6 +18,13 @@ class TestCase:
     tags: tuple[str, ...] = ()
     retries: int = 0
 
+    def __post_init__(self) -> None:
+        if (
+            isinstance(self.retries, bool) or not isinstance(self.retries, int)
+            or not 0 <= self.retries <= MAX_RETRIES
+        ):
+            raise ValueError(f"{self.name}: retries must be an integer between 0 and {MAX_RETRIES}")
+
 
 @dataclass(frozen=True)
 class Suite:
