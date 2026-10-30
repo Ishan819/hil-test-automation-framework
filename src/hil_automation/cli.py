@@ -5,6 +5,8 @@ from pathlib import Path
 
 from .config import Suite, load_suite
 from .native import NativeExecutionError, run_native_tests
+from .orchestration import run_plan, write_batch_report
+from .plans import load_plan
 from .reporting import native_report, write_json_report, write_junit_report, write_protobuf_report
 from .runner import run_suite
 
@@ -64,9 +66,39 @@ def _run_native(args: argparse.Namespace) -> int:
     return 0 if result.successful else 1
 
 
+def _run_plan(args: argparse.Namespace) -> int:
+    try:
+        batch = run_plan(load_plan(args.plan), fail_fast=args.fail_fast)
+        manifest = write_batch_report(
+            batch, args.report_dir or "reports/plans", args.report_format or "json",
+        )
+    except (ValueError, OSError) as exc:
+        print(f"Error: {exc}", file=sys.stderr)
+        return 2
+    if not args.quiet:
+        print(f"Plan: {batch.plan}")
+        for suite in batch.suites:
+            print(f"  [{suite.status.upper():7}] {suite.name} - {suite.duration_ms:.3f} ms")
+            if args.verbose and suite.report:
+                for case in suite.report.results:
+                    print(f"    [{case.status.upper()}] {case.name} - {case.details}")
+        print(f"Batch report: {manifest}")
+    statistics = batch.to_dict()["statistics"]
+    print(
+        f"Batch results: {statistics['passed_suites']} passed, "
+        f"{statistics['failed_suites']} failed, {statistics['skipped_suites']} skipped"
+    )
+    return 1 if batch.status == "failed" else 0
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description="Run a simulated HIL test suite")
     parser.add_argument("config", nargs="?", help="Path to a YAML test suite")
+    parser.add_argument("--plan", metavar="YAML", help="Run an ordered YAML execution plan")
+    parser.add_argument(
+        "--report-dir", metavar="DIRECTORY",
+        help="Batch output root (requires --plan; default: reports/plans). Manifest is JSON.",
+    )
     parser.add_argument(
         "--native-tests", metavar="BINARY",
         help="Run a compiled test binary in a separate process instead of a YAML suite",
@@ -104,6 +136,17 @@ def main() -> int:
         "--fail-fast", action="store_true", help="Stop execution after the first failed case",
     )
     args = parser.parse_args()
+    if args.plan is not None:
+        if (
+            args.config is not None or args.native_tests is not None or args.native_results
+            or args.native_filter is not None or args.native_timeout is not None
+            or args.case is not None or args.tag is not None or args.list_tests
+            or args.report is not None
+        ):
+            parser.error("--plan cannot be combined with single-suite, native, selection, or --report options")
+        return _run_plan(args)
+    if args.report_dir is not None:
+        parser.error("--report-dir requires --plan")
     if args.native_tests is not None:
         if args.config is not None:
             parser.error("provide either a YAML config or --native-tests, not both")
