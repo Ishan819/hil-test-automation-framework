@@ -1,0 +1,6 @@
+# Intentionally mixed outcomes for batch triage and exit-code verification.
+plan: mixed-faults
+suites:
+  - ../scenarios/smoke.yaml
+  - ../scenarios/faults.yaml
+  - ../scenarios/recovery.yaml

@@ -1,0 +1,5 @@
+# All suites in this plan are expected to pass.
+plan: passing-recovery
+suites:
+  - ../scenarios/smoke.yaml
+  - ../scenarios/recovery.yaml
