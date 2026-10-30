@@ -44,3 +44,18 @@ def test_explicit_null_tags_are_not_treated_as_missing(tmp_path):
 def test_existing_suites_remain_untagged_and_valid(scenario):
     path = Path(__file__).resolve().parents[1] / "scenarios" / f"{scenario}.yaml"
     assert all(case.tags == () for case in load_suite(path).tests)
+
+
+def test_cli_tag_selects_only_matches(tmp_path):
+    import json
+    import subprocess
+    import sys
+
+    path = tagged_suite(tmp_path, ["smoke"])
+    report = tmp_path / "tagged.json"
+    finished = subprocess.run(
+        [sys.executable, "-m", "hil_automation.cli", str(path), "--tag", "smoke", "--report", str(report)],
+        capture_output=True, text=True,
+    )
+    assert finished.returncode == 0, finished.stderr
+    assert [case["name"] for case in json.loads(report.read_text())["results"]] == ["alive"]

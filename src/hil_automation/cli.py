@@ -96,6 +96,7 @@ def main() -> int:
         help="List case names without executing tests or writing a report",
     )
     selection.add_argument("--case", metavar="NAME", help="Run only the named case")
+    selection.add_argument("--tag", metavar="TAG", help="Run YAML cases with the exact tag")
     output_mode = parser.add_mutually_exclusive_group()
     output_mode.add_argument("--verbose", action="store_true", help="Show step outcomes and timings")
     output_mode.add_argument("--quiet", action="store_true", help="Print only the results summary")
@@ -107,7 +108,7 @@ def main() -> int:
         if args.config is not None:
             parser.error("provide either a YAML config or --native-tests, not both")
         if (
-            args.list_tests or args.case is not None or args.fail_fast
+            args.list_tests or args.case is not None or args.tag is not None or args.fail_fast
         ):
             parser.error("--native-tests cannot be combined with YAML selection options")
         return _run_native(args)
@@ -135,6 +136,14 @@ def main() -> int:
                 raise ValueError(
                     f"Unknown test case: {args.case!r}. Available cases: {available}"
                 )
+            suite = Suite(suite.name, suite.bench, selected)
+        elif args.tag is not None:
+            if not args.tag.strip() or args.tag != args.tag.strip():
+                raise ValueError("Tag must be a non-empty name without surrounding whitespace")
+            selected = [case for case in suite.tests if args.tag in case.tags]
+            if not selected:
+                available = ", ".join(sorted({tag for case in suite.tests for tag in case.tags})) or "(none)"
+                raise ValueError(f"Unknown tag: {args.tag!r}. Available tags: {available}")
             suite = Suite(suite.name, suite.bench, selected)
         result = run_suite(suite, fail_fast=args.fail_fast)
         suffix = {"json": "json", "junit": "xml", "protobuf": "pb"}[args.report_format]
