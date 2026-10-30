@@ -6,11 +6,15 @@ from time import perf_counter
 from uuid import uuid4
 
 from .bench import Bench, SimulatedBench
-from .config import Suite
+from .config import Suite, TestCase
 from .native_results import NativeCaseResult
 
 
-class SimulatedConnectionFailure(AssertionError):
+class SimulatedAssertionFailure(AssertionError):
+    """An expected simulated bench assertion failed."""
+
+
+class SimulatedConnectionFailure(SimulatedAssertionFailure):
     """A heartbeat check failed on the simulated bench."""
 
 
@@ -32,6 +36,7 @@ class AttemptResult:
     details: str
     steps: list[StepResult] = field(default_factory=list)
     failure_category: str | None = None
+    retryable: bool = False
 
 
 @dataclass
@@ -106,12 +111,12 @@ def execute_step(bench: Bench, step: dict) -> None:
         actual = bench.read_voltage()
         expected, tolerance = float(step["value"]), float(step["tolerance"])
         if abs(actual - expected) > tolerance:
-            raise AssertionError(f"Voltage {actual:.2f} V, expected {expected:.2f} ± {tolerance:.2f} V")
+            raise SimulatedAssertionFailure(f"Voltage {actual:.2f} V, expected {expected:.2f} ± {tolerance:.2f} V")
     elif action == "expect_temperature_below":
         actual = bench.read_temperature_c()
         limit = float(step["limit_c"])
         if not actual < limit:
-            raise AssertionError(
+            raise SimulatedAssertionFailure(
                 f"Temperature {actual:.1f} °C is not below limit {limit:.1f} °C"
             )
     elif action == "set_connection":
@@ -131,8 +136,37 @@ def make_bench(config: dict) -> SimulatedBench:
     )
 
 
+def _run_attempt(suite: Suite, test: TestCase, number: int) -> AttemptResult:
+    bench = make_bench(suite.bench)
+    started = perf_counter()
+    status, details, category, retryable = "passed", "All steps passed", None, False
+    steps: list[StepResult] = []
+    for index, step in enumerate(test.steps, start=1):
+        if status == "failed":
+            steps.append(StepResult(index, step["action"], "skipped", "Earlier step failed"))
+            continue
+        step_started = perf_counter()
+        try:
+            execute_step(bench, step)
+            steps.append(StepResult(index, step["action"], "passed", "Step passed"))
+        except (AssertionError, ValueError) as exc:
+            category = (
+                "simulated_connection_failure" if isinstance(exc, SimulatedConnectionFailure)
+                else "assertion_failure" if isinstance(exc, AssertionError)
+                else "invalid_test_configuration"
+            )
+            retryable = isinstance(exc, SimulatedAssertionFailure)
+            steps.append(StepResult(index, step["action"], "failed", str(exc), failure_category=category))
+            status, details = "failed", f"Step {index}: {exc}"
+        steps[-1].duration_ms = round((perf_counter() - step_started) * 1000, 3)
+    return AttemptResult(
+        number, status, round((perf_counter() - started) * 1000, 3),
+        details, steps, category, retryable,
+    )
+
+
 def run_suite(suite: Suite, *, fail_fast: bool = False) -> RunReport:
-    """Give each test a fresh bench so tests cannot leak state into one another."""
+    """Run cases in order; each explicitly enabled retry uses a fresh bench."""
     suite_started = perf_counter()
     started_at = datetime.now(timezone.utc).isoformat()
     results: list[CaseResult] = []
@@ -145,44 +179,23 @@ def run_suite(suite: Suite, *, fail_fast: bool = False) -> RunReport:
                  for index, step in enumerate(test.steps, start=1)],
             ))
             continue
-        bench = make_bench(suite.bench)
-        started = perf_counter()
-        status, details = "passed", "All steps passed"
-        steps: list[StepResult] = []
-        failure_category = None
-        for index, step in enumerate(test.steps, start=1):
-            if status == "failed":
-                steps.append(StepResult(
-                    index, step["action"], "skipped", "Earlier step failed",
-                ))
-                continue
-            step_started = perf_counter()
-            try:
-                execute_step(bench, step)
-                steps.append(StepResult(index, step["action"], "passed", "Step passed"))
-            except (AssertionError, ValueError) as exc:
-                steps.append(StepResult(index, step["action"], "failed", str(exc)))
-                failure_category = (
-                    "simulated_connection_failure" if isinstance(exc, SimulatedConnectionFailure)
-                    else "assertion_failure" if isinstance(exc, AssertionError)
-                    else "invalid_test_configuration"
-                )
-                steps[-1].failure_category = failure_category
-                status, details = "failed", f"Step {index}: {exc}"
-            steps[-1].duration_ms = round((perf_counter() - step_started) * 1000, 3)
-        duration_ms = round((perf_counter() - started) * 1000, 3)
-        attempt = AttemptResult(1, status, duration_ms, details, [replace(step) for step in steps], failure_category)
-        results.append(
-            CaseResult(test.name, status, duration_ms, details, steps, failure_category, [attempt])
-        )
-        if fail_fast and status == "failed":
-            stopped = True
-    passed = sum(result.status == "passed" for result in results)
-    failed = sum(result.status == "failed" for result in results)
-    skipped = sum(result.status == "skipped" for result in results)
+        attempts: list[AttemptResult] = []
+        for number in range(1, test.retries + 2):
+            attempt = _run_attempt(suite, test, number)
+            attempts.append(attempt)
+            if attempt.status == "passed" or not attempt.retryable:
+                break
+        final = attempts[-1]
+        results.append(CaseResult(
+            test.name, final.status, round(sum(item.duration_ms for item in attempts), 3),
+            final.details, [replace(step) for step in final.steps], final.failure_category, attempts,
+        ))
+        stopped = fail_fast and final.status == "failed"
     return RunReport(
-        suite.name, started_at, passed, failed, results,
+        suite.name, started_at,
+        sum(result.status == "passed" for result in results),
+        sum(result.status == "failed" for result in results), results,
         finished_at=datetime.now(timezone.utc).isoformat(),
         duration_ms=round((perf_counter() - suite_started) * 1000, 3),
-        skipped=skipped,
+        skipped=sum(result.status == "skipped" for result in results),
     )
