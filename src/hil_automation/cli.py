@@ -20,7 +20,14 @@ def _run_native(args: argparse.Namespace) -> int:
             timeout=args.native_timeout if args.native_timeout is not None else 30.0,
             capture_xml=structured, native_filter=args.native_filter,
         )
-    except (NativeExecutionError, ValueError, OSError) as exc:
+    except NativeExecutionError as exc:
+        if args.verbose and exc.stdout:
+            print(exc.stdout, end="" if exc.stdout.endswith("\n") else "\n")
+        if exc.stderr:
+            print(exc.stderr, end="", file=sys.stderr)
+        print(f"Error: {exc}", file=sys.stderr)
+        return 2
+    except (ValueError, OSError) as exc:
         print(f"Error: {exc}", file=sys.stderr)
         return 2
     if args.verbose:

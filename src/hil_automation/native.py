@@ -12,7 +12,16 @@ from .native_results import NativeCaseResult, NativeResultError, parse_gtest_xml
 
 
 class NativeExecutionError(RuntimeError):
-    """A native test process could not be started or completed in time."""
+    """A native process could not complete; partial output is diagnostic only."""
+
+    def __init__(
+        self, message: str, *, stdout: str = "", stderr: str = "",
+        duration_ms: float | None = None,
+    ):
+        super().__init__(message)
+        self.stdout = stdout
+        self.stderr = stderr
+        self.duration_ms = duration_ms
 
 
 @dataclass(frozen=True)
@@ -104,7 +113,9 @@ def _execute_native(binary: Path, seconds: float, arguments: Sequence[str]) -> N
         raise NativeExecutionError(f"Native test executable not found: {binary}") from exc
     except subprocess.TimeoutExpired as exc:
         raise NativeExecutionError(
-            f"Native test executable timed out after {seconds:g} seconds: {binary}"
+            f"Native test executable timed out after {seconds:g} seconds: {binary}",
+            stdout=_output_text(exc.stdout), stderr=_output_text(exc.stderr),
+            duration_ms=round((perf_counter() - started) * 1000, 3),
         ) from exc
     except OSError as exc:
         raise NativeExecutionError(f"Cannot execute native test binary {binary}: {exc}") from exc
@@ -112,3 +123,7 @@ def _execute_native(binary: Path, seconds: float, arguments: Sequence[str]) -> N
         str(binary), finished.returncode, finished.stdout, finished.stderr,
         round((perf_counter() - started) * 1000, 3),
     )
+
+
+def _output_text(value: str | bytes | None) -> str:
+    return value.decode("utf-8", errors="replace") if isinstance(value, bytes) else value or ""
