@@ -47,3 +47,22 @@ Run `python -m pytest -q -m protobuf_integration` for real bidirectional exchang
 The utility supports `hil_proto_exchange produce OUTPUT RUN_ID [--fault]`,
 `verify INPUT`, and `roundtrip INPUT OUTPUT`; it never replaces existing output files.
 Its exit code describes successful validation/serialization, not the contained test outcomes.
+
+## Tags, retries, and plans
+
+YAML cases may set `tags: [smoke, thermal]` and `retries: 1`.
+Use `--tag thermal` with a tagged suite; unknown tags return exit code 2.
+Retries default to zero and permit at most three additional attempts, each with
+a fresh simulated bench. Only supported assertion/connection failures are retried.
+JSON preserves structured histories; JUnit system-out and Protobuf diagnostic
+details retain prior attempts without changing the binary schema.
+
+```bash
+hil-run --plan plans/recovery.yaml --report-dir reports/batches --report-format junit
+hil-run --plan plans/faults.yaml --fail-fast --quiet
+```
+
+Each batch gets a unique directory, individual suite reports, and a JSON manifest.
+The fault plan intentionally returns exit code 1. Plan paths are relative to the
+plan file. Native processes support configurable timeouts; Python steps have no
+hard in-process timeout guarantee.

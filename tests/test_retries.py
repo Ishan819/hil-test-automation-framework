@@ -152,3 +152,18 @@ def test_unexpected_assertions_are_not_automatically_retried(monkeypatch):
     ])).results[0]
     assert len(case.attempts) == 1
     assert not case.attempts[0].retryable
+
+
+@pytest.mark.parametrize("step", [
+    {"action": "expect_temperature_below", "limit_c": float("nan")},
+    {"action": "expect_voltage", "value": float("nan"), "tolerance": 0},
+    {"action": "expect_voltage", "value": 0, "tolerance": float("inf")},
+    {"action": "expect_voltage", "value": 0, "tolerance": -1},
+])
+def test_invalid_direct_assertion_values_never_pass_or_retry(step):
+    case = run_suite(Suite("invalid-numeric", {}, [
+        HilTestCase("invalid", [step], retries=3),
+    ])).results[0]
+    assert case.status == "failed"
+    assert case.failure_category == "invalid_test_configuration"
+    assert len(case.attempts) == 1

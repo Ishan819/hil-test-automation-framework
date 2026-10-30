@@ -1,5 +1,6 @@
 """Safely load and validate suites described in YAML."""
 from dataclasses import dataclass
+import math
 from pathlib import Path
 from typing import Any
 
@@ -45,7 +46,12 @@ REQUIRED_PARAMS = {
 
 
 def _number(value: Any) -> bool:
-    return isinstance(value, (int, float)) and not isinstance(value, bool)
+    if not isinstance(value, (int, float)) or isinstance(value, bool):
+        return False
+    try:
+        return math.isfinite(value)
+    except OverflowError:
+        return False
 
 
 def load_suite(path: str | Path) -> Suite:

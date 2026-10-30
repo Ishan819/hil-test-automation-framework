@@ -1,6 +1,7 @@
 """Execute validated plans sequentially with independent suite runs."""
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
+from pathlib import Path
 from time import perf_counter
 from uuid import uuid4
 
@@ -83,10 +84,9 @@ def run_plan(plan: ExecutionPlan, *, fail_fast: bool = False) -> BatchReport:
     )
 
 
-def write_batch_report(batch: BatchReport, directory: str, report_format: str = "json"):
+def write_batch_report(batch: BatchReport, directory: str | Path, report_format: str = "json") -> Path:
     """Write each suite in a fresh batch directory; publish the JSON manifest last."""
     import json
-    from pathlib import Path
     from .reporting import (
         ReportError, _atomic_write, write_json_report, write_junit_report, write_protobuf_report,
     )

@@ -42,3 +42,13 @@ def test_retry_and_tags_configuration_can_coexist(tmp_path):
     case = load_suite(retry_suite(tmp_path, retries=1, tags=["thermal"])).tests[0]
     assert case.retries == 1
     assert case.tags == ("thermal",)
+
+
+@pytest.mark.parametrize("value", [float("nan"), float("inf"), -float("inf")])
+def test_nonfinite_assertion_configuration_is_rejected_before_retry(tmp_path, value):
+    path = retry_suite(tmp_path, retries=3)
+    payload = yaml.safe_load(path.read_text())
+    payload["tests"][0]["steps"] = [{"action": "expect_temperature_below", "limit_c": value}]
+    path.write_text(yaml.safe_dump(payload))
+    with pytest.raises(ValueError, match="must be a number"):
+        load_suite(path)

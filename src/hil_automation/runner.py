@@ -1,6 +1,7 @@
 """Execute YAML steps against a bench and collect structured results."""
 from dataclasses import asdict, dataclass, field, replace
 from datetime import datetime, timezone
+import math
 import platform
 from time import perf_counter
 from uuid import uuid4
@@ -137,11 +138,15 @@ def execute_step(bench: Bench, step: dict) -> None:
     elif action == "expect_voltage":
         actual = bench.read_voltage()
         expected, tolerance = float(step["value"]), float(step["tolerance"])
+        if not math.isfinite(expected) or not math.isfinite(tolerance) or tolerance < 0:
+            raise ValueError("Voltage expectation and tolerance must be finite; tolerance cannot be negative")
         if abs(actual - expected) > tolerance:
             raise SimulatedAssertionFailure(f"Voltage {actual:.2f} V, expected {expected:.2f} ± {tolerance:.2f} V")
     elif action == "expect_temperature_below":
         actual = bench.read_temperature_c()
         limit = float(step["limit_c"])
+        if not math.isfinite(limit):
+            raise ValueError("Temperature limit must be finite")
         if not actual < limit:
             raise SimulatedAssertionFailure(
                 f"Temperature {actual:.1f} °C is not below limit {limit:.1f} °C"
