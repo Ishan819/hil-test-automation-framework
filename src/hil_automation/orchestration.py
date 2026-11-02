@@ -1,11 +1,12 @@
-"""Execute validated plans sequentially with independent suite runs."""
+"""Execute validated plans with independent software-simulated suite runs."""
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
 from time import perf_counter
 from uuid import uuid4
 
-from .plans import ExecutionPlan
+from .plans import ExecutionPlan, validate_workers
 from .runner import RunReport, run_suite
 
 
@@ -65,19 +66,33 @@ class BatchReport:
         }
 
 
-def run_plan(plan: ExecutionPlan, *, fail_fast: bool = False) -> BatchReport:
+def run_plan(
+    plan: ExecutionPlan, *, fail_fast: bool = False, workers: int | None = None,
+) -> BatchReport:
     if not plan.suites:
         raise ValueError("Execution plan must contain at least one suite")
+    workers = validate_workers(plan.workers if workers is None else workers)
+    if workers > 1:
+        if fail_fast:
+            raise ValueError("Parallel execution does not support fail-fast; use one worker")
+        if any(entry.suite.bench.get("type", "simulated") != "simulated" for entry in plan.suites):
+            raise ValueError("Parallel execution supports only software-simulated YAML suites")
     started = perf_counter()
     started_at = datetime.now(timezone.utc).isoformat()
-    suites = []
-    stopped = False
-    for entry in plan.suites:
-        report = None if stopped else run_suite(entry.suite, fail_fast=fail_fast)
-        execution = SuiteExecution(entry.suite.name, len(entry.suite.tests), report)
-        suites.append(execution)
-        if fail_fast and execution.status == "failed":
-            stopped = True
+    if workers > 1:
+        with ThreadPoolExecutor(max_workers=workers) as executor:
+            reports = list(executor.map(run_suite, [entry.suite for entry in plan.suites]))
+        suites = [SuiteExecution(entry.suite.name, len(entry.suite.tests), report)
+                  for entry, report in zip(plan.suites, reports)]
+    else:
+        suites = []
+        stopped = False
+        for entry in plan.suites:
+            report = None if stopped else run_suite(entry.suite, fail_fast=fail_fast)
+            execution = SuiteExecution(entry.suite.name, len(entry.suite.tests), report)
+            suites.append(execution)
+            if fail_fast and execution.status == "failed":
+                stopped = True
     return BatchReport(
         plan.name, suites, started_at, datetime.now(timezone.utc).isoformat(),
         round((perf_counter() - started) * 1000, 3),
