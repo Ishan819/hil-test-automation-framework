@@ -128,3 +128,57 @@ def test_worker_exception_is_not_mistaken_for_a_passing_batch(monkeypatch):
     monkeypatch.setattr(orchestration, "run_suite", broken)
     with pytest.raises(RuntimeError, match="worker bug"):
         orchestration.run_plan(ExecutionPlan("broken", [entry("one")], 2))
+
+
+def test_parallel_snapshots_do_not_share_mutable_suite_inputs(monkeypatch):
+    original = orchestration.run_suite
+    barrier = Barrier(2)
+    observed = []
+    shared = entry("shared")
+
+    def run(suite):
+        observed.append(suite)
+        suite.bench["private"] = id(suite)
+        suite.tests[0].steps[0]["private"] = id(suite)
+        barrier.wait(timeout=10)
+        assert suite.bench["private"] == id(suite)
+        assert suite.tests[0].steps[0]["private"] == id(suite)
+        return original(suite)
+
+    monkeypatch.setattr(orchestration, "run_suite", run)
+    batch = orchestration.run_plan(ExecutionPlan("aliases", [shared, shared], 2))
+    assert len({id(suite) for suite in observed}) == 2
+    assert shared.suite.bench == {}
+    assert shared.suite.tests[0].steps == [{"action": "expect_heartbeat"}]
+    batch.suites[0].report.results[0].steps[0].details = "changed"
+    assert batch.suites[1].report.results[0].steps[0].details == "Step passed"
+    assert batch.suites[0].report.results[0].attempts[0].steps[0].details == "Step passed"
+
+
+def test_concurrent_benches_and_retry_histories_are_independent(monkeypatch):
+    original = orchestration.run_suite
+    barrier = Barrier(3)
+    def run(suite):
+        barrier.wait(timeout=10)
+        return original(suite)
+    monkeypatch.setattr(orchestration, "run_suite", run)
+    plan = ExecutionPlan("isolation", [
+        entry("mutate", [
+            {"action": "set_voltage", "value": 12},
+            {"action": "set_temperature", "value": 95},
+            {"action": "set_connection", "connected": False},
+        ]),
+        entry("fresh", [
+            {"action": "expect_voltage", "value": 0, "tolerance": 0},
+            {"action": "expect_temperature_below", "limit_c": 30},
+            {"action": "expect_heartbeat"},
+        ], retries=3),
+        entry("retry", [{"action": "expect_temperature_below", "limit_c": 0}], retries=2),
+    ], 3)
+    batch = orchestration.run_plan(plan)
+    assert [suite.status for suite in batch.suites] == ["passed", "passed", "failed"]
+    cases = [suite.report.results[0] for suite in batch.suites]
+    assert [len(case.attempts) for case in cases] == [1, 1, 3]
+    assert [attempt.number for attempt in cases[2].attempts] == [1, 2, 3]
+    assert all("28.0" in attempt.details for attempt in cases[2].attempts)
+    assert len({id(case.attempts) for case in cases}) == 3

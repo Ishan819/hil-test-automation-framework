@@ -1,5 +1,6 @@
 """Execute validated plans with independent software-simulated suite runs."""
 from concurrent.futures import FIRST_COMPLETED, ThreadPoolExecutor, wait
+from copy import deepcopy
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
@@ -82,7 +83,9 @@ def run_plan(
     if workers > 1:
         # Bound pending work as well as active threads; retain each plan index.
         suites = [None] * len(plan.suites)
-        entries = iter(enumerate(plan.suites))
+        # Snapshot every suite before starting threads, including aliased input data.
+        entries = iter(enumerate(deepcopy(entry) for entry in plan.suites))
+        entries = iter(list(entries))
         with ThreadPoolExecutor(max_workers=workers) as executor:
             pending = {}
 
