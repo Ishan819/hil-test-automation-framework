@@ -79,3 +79,52 @@ def test_out_of_order_completion_preserves_plan_associations(monkeypatch):
     assert [suite.name for suite in batch.suites] == ["first", "middle", "last"]
     assert [suite.report.suite for suite in batch.suites] == ["first", "middle", "last"]
     assert [suite.report.results[0].name for suite in batch.suites] == ["first", "middle", "last"]
+
+
+@pytest.mark.parametrize("workers", [0, -1, 9, True, False, 2.0, "2"])
+def test_worker_overrides_are_validated_before_execution(monkeypatch, workers):
+    def unexpected(*args, **kwargs):
+        pytest.fail("Invalid workers must not execute")
+    monkeypatch.setattr(orchestration, "run_suite", unexpected)
+    with pytest.raises(ValueError, match="Workers must be an integer"):
+        orchestration.run_plan(ExecutionPlan("invalid", [entry("one")]), workers=workers)
+
+
+def test_default_execution_stays_on_calling_thread(monkeypatch):
+    from threading import get_ident
+
+    original = orchestration.run_suite
+    caller = get_ident()
+    observed = []
+    def run(suite, **kwargs):
+        observed.append((suite.name, get_ident(), kwargs))
+        return original(suite, **kwargs)
+    monkeypatch.setattr(orchestration, "run_suite", run)
+    orchestration.run_plan(ExecutionPlan("default", [entry("first"), entry("second")]))
+    assert observed == [("first", caller, {"fail_fast": False}), ("second", caller, {"fail_fast": False})]
+
+
+def test_one_worker_override_preserves_sequential_fail_fast():
+    plan = ExecutionPlan("override", [
+        entry("fault", [{"action": "expect_temperature_below", "limit_c": 0}]), entry("later"),
+    ], 2)
+    batch = orchestration.run_plan(plan, workers=1, fail_fast=True)
+    assert [suite.status for suite in batch.suites] == ["failed", "skipped"]
+
+
+def test_single_suite_accepts_maximum_workers():
+    batch = orchestration.run_plan(ExecutionPlan("small", [entry("one")], 8))
+    assert len(batch.suites) == 1 and batch.status == "passed"
+
+
+def test_empty_plan_is_rejected():
+    with pytest.raises(ValueError, match="at least one suite"):
+        orchestration.run_plan(ExecutionPlan("empty", [], 2))
+
+
+def test_worker_exception_is_not_mistaken_for_a_passing_batch(monkeypatch):
+    def broken(suite):
+        raise RuntimeError("worker bug")
+    monkeypatch.setattr(orchestration, "run_suite", broken)
+    with pytest.raises(RuntimeError, match="worker bug"):
+        orchestration.run_plan(ExecutionPlan("broken", [entry("one")], 2))
