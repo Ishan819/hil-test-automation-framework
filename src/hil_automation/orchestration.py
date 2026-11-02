@@ -1,5 +1,5 @@
 """Execute validated plans with independent software-simulated suite runs."""
-from concurrent.futures import ThreadPoolExecutor
+from concurrent.futures import FIRST_COMPLETED, ThreadPoolExecutor, wait
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
@@ -80,10 +80,28 @@ def run_plan(
     started = perf_counter()
     started_at = datetime.now(timezone.utc).isoformat()
     if workers > 1:
+        # Bound pending work as well as active threads; retain each plan index.
+        suites = [None] * len(plan.suites)
+        entries = iter(enumerate(plan.suites))
         with ThreadPoolExecutor(max_workers=workers) as executor:
-            reports = list(executor.map(run_suite, [entry.suite for entry in plan.suites]))
-        suites = [SuiteExecution(entry.suite.name, len(entry.suite.tests), report)
-                  for entry, report in zip(plan.suites, reports)]
+            pending = {}
+
+            def submit_next():
+                item = next(entries, None)
+                if item is not None:
+                    index, entry = item
+                    pending[executor.submit(run_suite, entry.suite)] = (index, entry)
+
+            for _ in range(min(workers, len(plan.suites))):
+                submit_next()
+            while pending:
+                completed, _ = wait(pending, return_when=FIRST_COMPLETED)
+                for future in completed:
+                    index, entry = pending.pop(future)
+                    suites[index] = SuiteExecution(
+                        entry.suite.name, len(entry.suite.tests), future.result(),
+                    )
+                    submit_next()
     else:
         suites = []
         stopped = False

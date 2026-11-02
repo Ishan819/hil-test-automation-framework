@@ -53,3 +53,29 @@ def test_parallel_rejects_non_simulated_benches():
     suite = PlanSuite(Path("device.yaml"), Suite("device", {"type": "physical"}, []))
     with pytest.raises(ValueError, match="only software-simulated"):
         orchestration.run_plan(ExecutionPlan("unsafe", [suite], 2))
+
+
+def test_out_of_order_completion_preserves_plan_associations(monkeypatch):
+    from threading import Event
+
+    original = orchestration.run_suite
+    last_finished = Event()
+    completed = []
+
+    def run(suite):
+        if suite.name == "first":
+            assert last_finished.wait(timeout=10)
+        report = original(suite)
+        completed.append(suite.name)
+        if suite.name == "last":
+            last_finished.set()
+        return report
+
+    monkeypatch.setattr(orchestration, "run_suite", run)
+    batch = orchestration.run_plan(ExecutionPlan("ordered", [
+        entry("first"), entry("middle"), entry("last"),
+    ], 2))
+    assert completed.index("last") < completed.index("first")
+    assert [suite.name for suite in batch.suites] == ["first", "middle", "last"]
+    assert [suite.report.suite for suite in batch.suites] == ["first", "middle", "last"]
+    assert [suite.report.results[0].name for suite in batch.suites] == ["first", "middle", "last"]
