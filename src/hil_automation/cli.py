@@ -6,7 +6,7 @@ from pathlib import Path
 from .config import Suite, load_suite
 from .native import NativeExecutionError, run_native_tests
 from .orchestration import run_plan, write_batch_report
-from .plans import load_plan
+from .plans import MAX_WORKERS, load_plan
 from .reporting import native_report, write_json_report, write_junit_report, write_protobuf_report
 from .runner import run_suite
 
@@ -75,7 +75,7 @@ def _run_native(args: argparse.Namespace) -> int:
 
 def _run_plan(args: argparse.Namespace) -> int:
     try:
-        batch = run_plan(load_plan(args.plan), fail_fast=args.fail_fast)
+        batch = run_plan(load_plan(args.plan), fail_fast=args.fail_fast, workers=args.workers)
         manifest = write_batch_report(
             batch, args.report_dir or "reports/plans", args.report_format or "json",
         )
@@ -86,6 +86,8 @@ def _run_plan(args: argparse.Namespace) -> int:
         print(f"Plan: {batch.plan}")
         for suite in batch.suites:
             print(f"  [{suite.status.upper():7}] {suite.name} - {suite.duration_ms:.3f} ms")
+            if suite.error is not None:
+                print(f"    {suite.error}")
             if args.verbose and suite.report:
                 for case in suite.report.results:
                     print(f"    [{case.status.upper()}] {case.name} - {case.details}")
@@ -102,6 +104,10 @@ def main() -> int:
     parser = argparse.ArgumentParser(description="Run a simulated HIL test suite")
     parser.add_argument("config", nargs="?", help="Path to a YAML test suite")
     parser.add_argument("--plan", metavar="YAML", help="Run an ordered YAML execution plan")
+    parser.add_argument(
+        "--workers", type=int, metavar="N",
+        help=f"Simulated suite workers, 1-{MAX_WORKERS} (requires --plan; overrides plan workers)",
+    )
     parser.add_argument(
         "--report-dir", metavar="DIRECTORY",
         help="Batch output root (requires --plan; default: reports/plans). Manifest is JSON.",
@@ -152,6 +158,8 @@ def main() -> int:
         ):
             parser.error("--plan cannot be combined with single-suite, native, selection, or --report options")
         return _run_plan(args)
+    if args.workers is not None:
+        parser.error("--workers requires --plan")
     if args.report_dir is not None:
         parser.error("--report-dir requires --plan")
     if args.native_tests is not None:
