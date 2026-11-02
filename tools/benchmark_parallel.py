@@ -1,0 +1,62 @@
+"""Opt-in wall-clock comparison of CPU-bound software-simulated suite execution."""
+import argparse
+import json
+from pathlib import Path
+from statistics import median
+from time import perf_counter
+
+from hil_automation.config import Suite, TestCase
+from hil_automation.orchestration import run_plan
+from hil_automation.plans import MAX_WORKERS, ExecutionPlan, PlanSuite
+
+
+def positive_integer(value):
+    number = int(value)
+    if number < 1:
+        raise argparse.ArgumentTypeError("must be a positive integer")
+    return number
+
+
+def workload(suites, steps):
+    return ExecutionPlan("benchmark", [
+        PlanSuite(Path(f"simulated-{index}.yaml"), Suite(f"simulated-{index}", {"type": "simulated"}, [
+            TestCase("voltage-cycle", [
+                {"action": "set_voltage", "value": 5} if step % 2 == 0
+                else {"action": "expect_voltage", "value": 5, "tolerance": 0}
+                for step in range(steps)
+            ]),
+        ])) for index in range(suites)
+    ])
+
+
+def main():
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--suites", type=positive_integer, default=8)
+    parser.add_argument("--steps", type=positive_integer, default=2000, help="Steps per suite")
+    parser.add_argument("--repeats", type=positive_integer, default=3)
+    parser.add_argument("--workers", type=int, choices=range(2, MAX_WORKERS + 1), default=4)
+    args = parser.parse_args()
+    measurements = {1: [], args.workers: []}
+    for repeat in range(args.repeats):
+        # Alternate measurement order to reduce systematic warm-up bias.
+        order = (1, args.workers) if repeat % 2 == 0 else (args.workers, 1)
+        for workers in order:
+            plan = workload(args.suites, args.steps)
+            started = perf_counter()
+            batch = run_plan(plan, workers=workers)
+            elapsed = perf_counter() - started
+            if batch.status != "passed" or len(batch.suites) != args.suites:
+                raise RuntimeError("Benchmark workload did not complete successfully")
+            measurements[workers].append(elapsed)
+    print(json.dumps({
+        "workload": {"suites": args.suites, "steps_per_suite": args.steps, "repeats": args.repeats},
+        "measurements": [{"workers": workers, "wall_seconds": values, "median_seconds": median(values)}
+                         for workers, values in measurements.items()],
+        "note": "Execution only, including input snapshots; excludes plan construction and report writing. "
+                "Threads do not guarantee faster execution, especially for this CPU-bound simulator.",
+    }, indent=2))
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
