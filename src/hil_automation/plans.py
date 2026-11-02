@@ -7,6 +7,15 @@ import yaml
 from .config import Suite, load_suite
 
 
+MAX_WORKERS = 8
+
+
+def validate_workers(workers: int) -> int:
+    if isinstance(workers, bool) or not isinstance(workers, int) or not 1 <= workers <= MAX_WORKERS:
+        raise ValueError(f"Workers must be an integer between 1 and {MAX_WORKERS}")
+    return workers
+
+
 @dataclass(frozen=True)
 class PlanSuite:
     path: Path
@@ -17,6 +26,10 @@ class PlanSuite:
 class ExecutionPlan:
     name: str
     suites: list[PlanSuite]
+    workers: int = 1
+
+    def __post_init__(self):
+        validate_workers(self.workers)
 
 
 def load_plan(path: str | Path) -> ExecutionPlan:
@@ -27,8 +40,9 @@ def load_plan(path: str | Path) -> ExecutionPlan:
         raise ValueError(f"Invalid plan YAML: {exc}") from exc
     if not isinstance(payload, dict):
         raise ValueError("Plan must be a YAML mapping")
-    if set(payload) - {"plan", "suites"}:
+    if set(payload) - {"plan", "suites", "workers"}:
         raise ValueError("Unsupported execution plan fields")
+    workers = validate_workers(payload.get("workers", 1))
     name = payload.get("plan")
     entries = payload.get("suites")
     if not isinstance(name, str) or not name.strip():
@@ -54,4 +68,4 @@ def load_plan(path: str | Path) -> ExecutionPlan:
         except (ValueError, OSError) as exc:
             raise ValueError(f"Invalid plan suite {entry!r}: {exc}") from exc
         suites.append(PlanSuite(target, suite))
-    return ExecutionPlan(name, suites)
+    return ExecutionPlan(name, suites, workers)

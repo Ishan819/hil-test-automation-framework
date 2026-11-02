@@ -92,3 +92,24 @@ def test_distinct_suite_files_may_share_a_display_name(tmp_path):
     suite_file(tmp_path / "one.yaml", "same-name")
     suite_file(tmp_path / "two.yaml", "same-name")
     assert len(load_plan(plan_file(tmp_path, ["one.yaml", "two.yaml"])).suites) == 2
+
+
+@pytest.mark.parametrize("workers", [1, 2, 8])
+def test_plan_worker_configuration(tmp_path, workers):
+    suite_file(tmp_path / "one.yaml")
+    assert load_plan(plan_file(tmp_path, ["one.yaml"], workers=workers)).workers == workers
+
+
+def test_existing_plans_default_to_one_worker(tmp_path):
+    suite_file(tmp_path / "one.yaml")
+    assert load_plan(plan_file(tmp_path, ["one.yaml"])).workers == 1
+
+
+@pytest.mark.parametrize("workers", [0, -1, 9, True, False, 1.0, "2", None, [], {}])
+def test_invalid_worker_configuration(tmp_path, workers):
+    from hil_automation.plans import ExecutionPlan
+
+    with pytest.raises(ValueError, match="Workers must be an integer between 1 and 8"):
+        ExecutionPlan("bad", [], workers)
+    with pytest.raises(ValueError, match="Workers must be an integer between 1 and 8"):
+        load_plan(plan_file(tmp_path, ["missing.yaml"], workers=workers))
