@@ -38,6 +38,7 @@ class BatchReport:
     finished_at: str
     duration_ms: float
     run_id: str = field(default_factory=lambda: str(uuid4()))
+    workers: int = 1
 
     @property
     def status(self) -> str:
@@ -53,7 +54,7 @@ class BatchReport:
         return {
             "schema_version": "1.0", "plan": self.plan, "run_id": self.run_id,
             "status": self.status, "started_at": self.started_at, "finished_at": self.finished_at,
-            "duration_ms": self.duration_ms,
+            "duration_ms": self.duration_ms, "workers": self.workers,
             "statistics": {
                 "total_suites": len(self.suites),
                 "executed_suites": sum(suite.report is not None or suite.error is not None for suite in self.suites),
@@ -103,8 +104,7 @@ def run_plan(
         # Bound pending work as well as active threads; retain each plan index.
         suites = [None] * len(plan.suites)
         # Snapshot every suite before starting threads, including aliased input data.
-        entries = iter(enumerate(deepcopy(entry) for entry in plan.suites))
-        entries = iter(list(entries))
+        entries = iter(enumerate([deepcopy(entry) for entry in plan.suites]))
         with ThreadPoolExecutor(max_workers=workers) as executor:
             pending = {}
 
@@ -133,7 +133,7 @@ def run_plan(
                 stopped = True
     return BatchReport(
         plan.name, suites, started_at, datetime.now(timezone.utc).isoformat(),
-        round((perf_counter() - started) * 1000, 3),
+        round((perf_counter() - started) * 1000, 3), workers=workers,
     )
 
 

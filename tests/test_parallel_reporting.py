@@ -113,3 +113,64 @@ def test_worker_failure_retains_successes_and_reports_unknown_case_outcomes(tmp_
     assert not (manifest.parent / "001.json").exists()
     assert (manifest.parent / "002.json").is_file()
     assert (manifest.parent / "003.json").is_file()
+
+
+@pytest.mark.parametrize("report_format, extension", [("json", "json"), ("junit", "xml"), ("protobuf", "pb")])
+def test_parallel_aggregate_and_individual_reports_remain_consistent(tmp_path, report_format, extension):
+    from xml.etree import ElementTree as ET
+    from hil_automation.protobuf import parse_result
+
+    batch = run_plan(ExecutionPlan("formats", [entry("healthy"), entry(
+        "retry", [{"action": "expect_temperature_below", "limit_c": 0}], retries=2,
+    )], 2))
+    manifest = write_batch_report(batch, tmp_path, report_format)
+    data = json.loads(manifest.read_text())
+    assert data["workers"] == 2
+    stats = data["statistics"]
+    assert (stats["total_suites"], stats["executed_suites"], stats["passed_suites"], stats["failed_suites"]) == (2, 2, 1, 1)
+    assert (stats["total_cases"], stats["executed_cases"], stats["passed_cases"], stats["failed_cases"]) == (2, 2, 1, 1)
+    assert stats["unreported_cases"] == stats["skipped_cases"] == 0
+    assert len({data["run_id"], *(item["report"]["run_id"] for item in data["suites"])}) == 3
+    assert data["finished_at"] >= data["started_at"]
+    assert data["duration_ms"] >= 0
+    for index, item in enumerate(data["suites"], start=1):
+        report = item["report"]
+        assert item["duration_ms"] == report["duration_ms"] >= 0
+        assert item["report_file"] == f"{index:03d}.{extension}"
+        path = manifest.parent / item["report_file"]
+        if report_format == "json":
+            assert json.loads(path.read_text()) == report
+        elif report_format == "junit":
+            root = ET.parse(path).getroot()
+            assert root.get("name") == item["suite"]
+            assert root.get("id") == report["run_id"]
+            assert root.get("tests") == "1"
+            assert root.get("failures") == str(report["failed"])
+            if index == 2:
+                assert json.loads(root.find("testcase/system-out").text)["retry_count"] == 2
+        else:
+            message = parse_result(path.read_bytes())
+            assert message.run_id == report["run_id"] and message.suite == item["suite"]
+            assert message.summary.failed == report["failed"]
+            if index == 2:
+                history = json.loads(message.cases[0].details.split("\nRetry history: ", 1)[1])
+                assert history["retry_count"] == 2
+        if index == 2:
+            assert report["retry_summary"] == {"total_attempts": 3, "retries": 2, "passed_after_retry": 0}
+
+
+def test_batch_elapsed_time_uses_wall_clock_instead_of_summing_suites(monkeypatch):
+    from hil_automation import orchestration
+
+    original = orchestration.run_suite
+    def run(suite, **kwargs):
+        report = original(suite, **kwargs)
+        report.duration_ms = 250
+        return report
+    monkeypatch.setattr(orchestration, "run_suite", run)
+    monkeypatch.setattr(orchestration, "perf_counter", lambda: 10.0)
+    batch = run_plan(ExecutionPlan("wall", [entry("one"), entry("two")], 2))
+    assert batch.duration_ms == 0
+    assert sum(suite.duration_ms for suite in batch.suites) == 500
+    assert batch.workers == 2
+    assert run_plan(ExecutionPlan("default", [entry("one")])).workers == 1
