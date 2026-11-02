@@ -126,8 +126,10 @@ def test_worker_exception_is_not_mistaken_for_a_passing_batch(monkeypatch):
     def broken(suite):
         raise RuntimeError("worker bug")
     monkeypatch.setattr(orchestration, "run_suite", broken)
-    with pytest.raises(RuntimeError, match="worker bug"):
-        orchestration.run_plan(ExecutionPlan("broken", [entry("one")], 2))
+    batch = orchestration.run_plan(ExecutionPlan("broken", [entry("one")], 2))
+    assert batch.status == "failed"
+    assert batch.suites[0].report is None
+    assert batch.suites[0].error == "RuntimeError: worker bug"
 
 
 def test_parallel_snapshots_do_not_share_mutable_suite_inputs(monkeypatch):

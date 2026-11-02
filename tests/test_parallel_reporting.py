@@ -79,3 +79,37 @@ def test_suite_write_failure_does_not_publish_success_manifest(tmp_path, monkeyp
         write_batch_report(batch, tmp_path)
     assert not list(tmp_path.glob("*/batch.json"))
     assert json.loads(next(tmp_path.glob("*/001.json")).read_text())["suite"] == "one"
+
+
+def test_worker_failure_retains_successes_and_reports_unknown_case_outcomes(tmp_path, monkeypatch):
+    from hil_automation import orchestration
+
+    original = orchestration.run_suite
+    barrier = Barrier(2)
+    def run(suite):
+        if suite.name in ("broken", "healthy"):
+            barrier.wait(timeout=10)
+        if suite.name == "broken":
+            raise RuntimeError("simulator unavailable")
+        return original(suite)
+    monkeypatch.setattr(orchestration, "run_suite", run)
+    batch = run_plan(ExecutionPlan("failure", [entry("broken"), entry("healthy"), entry("later")], 2))
+    assert batch.status == "failed"
+    assert [suite.status for suite in batch.suites] == ["failed", "passed", "passed"]
+    assert batch.suites[0].error == "RuntimeError: simulator unavailable"
+    assert batch.suites[0].duration_ms >= 0
+    manifest = write_batch_report(batch, tmp_path)
+    data = json.loads(manifest.read_text())
+    failed = data["suites"][0]
+    assert failed["report"] is None and failed["report_file"] is None
+    assert failed["error"] == "RuntimeError: simulator unavailable"
+    stats = data["statistics"]
+    assert (stats["executed_suites"], stats["failed_suites"], stats["passed_suites"]) == (3, 1, 2)
+    assert (stats["executed_cases"], stats["passed_cases"], stats["failed_cases"]) == (2, 2, 0)
+    assert stats["unreported_cases"] == 1 and stats["skipped_cases"] == 0
+    assert stats["total_cases"] == sum(stats[key] for key in (
+        "passed_cases", "failed_cases", "skipped_cases", "unreported_cases",
+    ))
+    assert not (manifest.parent / "001.json").exists()
+    assert (manifest.parent / "002.json").is_file()
+    assert (manifest.parent / "003.json").is_file()

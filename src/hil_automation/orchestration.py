@@ -7,7 +7,7 @@ from pathlib import Path
 from time import perf_counter
 from uuid import uuid4
 
-from .plans import ExecutionPlan, validate_workers
+from .plans import ExecutionPlan, PlanSuite, validate_workers
 from .runner import RunReport, run_suite
 
 
@@ -16,14 +16,18 @@ class SuiteExecution:
     name: str
     case_count: int
     report: RunReport | None
+    error: str | None = None
+    error_duration_ms: float = 0.0
 
     @property
     def status(self) -> str:
+        if self.error is not None:
+            return "failed"
         return "skipped" if self.report is None else "failed" if self.report.failed else "passed"
 
     @property
     def duration_ms(self) -> float:
-        return self.report.duration_ms if self.report else 0.0
+        return self.report.duration_ms if self.report else self.error_duration_ms
 
 
 @dataclass
@@ -43,7 +47,8 @@ class BatchReport:
         passed = sum(suite.report.passed for suite in self.suites if suite.report)
         failed = sum(suite.report.failed for suite in self.suites if suite.report)
         skipped = sum(
-            suite.report.skipped if suite.report else suite.case_count for suite in self.suites
+            suite.report.skipped if suite.report else suite.case_count if suite.error is None else 0
+            for suite in self.suites
         )
         return {
             "schema_version": "1.0", "plan": self.plan, "run_id": self.run_id,
@@ -51,20 +56,34 @@ class BatchReport:
             "duration_ms": self.duration_ms,
             "statistics": {
                 "total_suites": len(self.suites),
-                "executed_suites": sum(suite.report is not None for suite in self.suites),
+                "executed_suites": sum(suite.report is not None or suite.error is not None for suite in self.suites),
                 "passed_suites": sum(suite.status == "passed" for suite in self.suites),
                 "failed_suites": sum(suite.status == "failed" for suite in self.suites),
                 "skipped_suites": sum(suite.status == "skipped" for suite in self.suites),
                 "total_cases": sum(suite.case_count for suite in self.suites),
                 "executed_cases": passed + failed,
+                "unreported_cases": sum(suite.case_count for suite in self.suites if suite.error is not None),
                 "passed_cases": passed, "failed_cases": failed, "skipped_cases": skipped,
             },
             "suites": [{
                 "suite": suite.name, "status": suite.status, "duration_ms": suite.duration_ms,
-                "planned_cases": suite.case_count,
+                "planned_cases": suite.case_count, "error": suite.error,
                 "report": suite.report.to_dict() if suite.report else None,
             } for suite in self.suites],
         }
+
+
+def _execute_parallel_suite(entry: PlanSuite) -> SuiteExecution:
+    name, count = entry.suite.name, len(entry.suite.tests)
+    started = perf_counter()
+    try:
+        return SuiteExecution(name, count, run_suite(entry.suite))
+    except Exception as exc:
+        # No complete report exists: never invent successful or failed case outcomes.
+        return SuiteExecution(
+            name, count, None, f"{type(exc).__name__}: {exc}",
+            round((perf_counter() - started) * 1000, 3),
+        )
 
 
 def run_plan(
@@ -93,7 +112,7 @@ def run_plan(
                 item = next(entries, None)
                 if item is not None:
                     index, entry = item
-                    pending[executor.submit(run_suite, entry.suite)] = (index, entry)
+                    pending[executor.submit(_execute_parallel_suite, entry)] = (index, entry)
 
             for _ in range(min(workers, len(plan.suites))):
                 submit_next()
@@ -101,9 +120,7 @@ def run_plan(
                 completed, _ = wait(pending, return_when=FIRST_COMPLETED)
                 for future in completed:
                     index, entry = pending.pop(future)
-                    suites[index] = SuiteExecution(
-                        entry.suite.name, len(entry.suite.tests), future.result(),
-                    )
+                    suites[index] = future.result()
                     submit_next()
     else:
         suites = []

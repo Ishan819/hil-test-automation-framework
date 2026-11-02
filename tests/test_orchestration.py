@@ -62,7 +62,7 @@ def test_batch_statistics_include_unexecuted_cases():
     assert stats == {
         "total_suites": 2, "executed_suites": 1, "passed_suites": 0,
         "failed_suites": 1, "skipped_suites": 1, "total_cases": 2,
-        "executed_cases": 1, "passed_cases": 0, "failed_cases": 1, "skipped_cases": 1,
+        "executed_cases": 1, "unreported_cases": 0, "passed_cases": 0, "failed_cases": 1, "skipped_cases": 1,
     }
 
 
