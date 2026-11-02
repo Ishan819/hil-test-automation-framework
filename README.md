@@ -66,3 +66,20 @@ Each batch gets a unique directory, individual suite reports, and a JSON manifes
 The fault plan intentionally returns exit code 1. Plan paths are relative to the
 plan file. Native processes support configurable timeouts; Python steps have no
 hard in-process timeout guarantee.
+
+
+For independent software-simulated suites, opt into bounded thread workers:
+
+```bash
+hil-run --plan plans/recovery.yaml --workers 4 --report-dir reports/parallel
+python tools/benchmark_parallel.py --workers 4
+```
+
+Plans may also set `workers: 4`; the CLI overrides that setting. The default is
+one worker, with an allowed range of 1–8. Parallel results remain in plan order,
+with separate bench state and suite reports. Worker exceptions fail the batch;
+cases without complete outcomes are counted as `unreported_cases` in the manifest.
+Parallel `--fail-fast` is rejected; use one worker for existing fail-fast behavior.
+Workers apply only to simulated YAML batches, never native or physical devices.
+Batch duration measures wall time, not summed suite durations. The opt-in benchmark
+prints observed wall times; CPU-bound simulation may be slower with threads.

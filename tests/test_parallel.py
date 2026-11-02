@@ -184,3 +184,28 @@ def test_concurrent_benches_and_retry_histories_are_independent(monkeypatch):
     assert [attempt.number for attempt in cases[2].attempts] == [1, 2, 3]
     assert all("28.0" in attempt.details for attempt in cases[2].attempts)
     assert len({id(case.attempts) for case in cases}) == 3
+
+
+def test_scheduler_never_submits_the_whole_plan_up_front(monkeypatch):
+    original_executor = orchestration.ThreadPoolExecutor
+    original_wait = orchestration.wait
+    submissions = []
+    pending_counts = []
+
+    class ObservedExecutor(original_executor):
+        def submit(self, fn, *args, **kwargs):
+            submissions.append(args[0].suite.name)
+            return super().submit(fn, *args, **kwargs)
+
+    def wait(pending, **kwargs):
+        pending_counts.append(len(pending))
+        if len(pending_counts) == 1:
+            assert submissions == ["0", "1"]
+        return original_wait(pending, **kwargs)
+
+    monkeypatch.setattr(orchestration, "ThreadPoolExecutor", ObservedExecutor)
+    monkeypatch.setattr(orchestration, "wait", wait)
+    batch = orchestration.run_plan(ExecutionPlan("bounded-queue", [entry(str(i)) for i in range(20)], 2))
+    assert submissions == [str(i) for i in range(20)]
+    assert pending_counts and max(pending_counts) <= 2
+    assert len(batch.suites) == 20 and batch.status == "passed"

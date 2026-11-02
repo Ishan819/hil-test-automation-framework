@@ -19,7 +19,7 @@ jobs:
           python-version: ${{ matrix.python-version }}
       - name: Install package and test dependencies
         run: python -m pip install -e ".[dev]"
-      - name: Run tests including tags retries plans and native reliability
+      - name: Run tests including parallel orchestration and native reliability
         run: python -m pytest -q
       - name: Run sample suite
         run: hil-run scenarios/smoke.yaml
@@ -27,6 +27,24 @@ jobs:
         run: hil-run scenarios/recovery.yaml --report-format junit --report reports/recovery.xml
       - name: Run passing execution plan with binary suite reports
         run: hil-run --plan plans/recovery.yaml --report-dir reports/batches --report-format protobuf --quiet
+      - name: Verify parallel recovery plan and report associations
+        run: |
+          hil-run --plan plans/recovery.yaml --workers 2 --report-dir reports/parallel --report-format junit --quiet
+          python - <<'PYTHON'
+          import json
+          from pathlib import Path
+          from xml.etree import ElementTree as ET
+          manifest = next(Path("reports/parallel").glob("*/batch.json"))
+          batch = json.loads(manifest.read_text())
+          assert batch["workers"] == 2 and batch["status"] == "passed"
+          assert batch["statistics"]["passed_cases"] == 6
+          assert [item["suite"] for item in batch["suites"]] == ["bench-smoke-tests", "simulated-recovery"]
+          for item in batch["suites"]:
+              suite = ET.parse(manifest.parent / item["report_file"]).getroot()
+              assert suite.get("id") == item["report"]["run_id"]
+              assert suite.get("name") == item["suite"]
+              assert suite.get("tests") == "3" and suite.get("failures") == "0"
+          PYTHON
 
   native:
     runs-on: ubuntu-latest
