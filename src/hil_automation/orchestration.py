@@ -134,6 +134,11 @@ def write_batch_report(batch: BatchReport, directory: str | Path, report_format:
     }
     if report_format not in writers:
         raise ReportError(f"Unsupported batch report format: {report_format}")
+    reports = [suite.report for suite in batch.suites if suite.report is not None]
+    if len({report.run_id for report in reports}) != len(reports):
+        raise ReportError("Batch suite reports must have unique run IDs")
+    if any(suite.report is not None and suite.report.suite != suite.name for suite in batch.suites):
+        raise ReportError("Batch suite report association does not match its planned suite")
     extension, write = writers[report_format]
     destination = Path(directory) / batch.run_id
     try:
