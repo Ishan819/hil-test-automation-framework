@@ -106,7 +106,8 @@ def test_mixed_batch_failure_exit_and_skipped_outcomes(tmp_path, fail_fast):
         assert data["suites"][2]["report"] is None and data["suites"][2]["report_file"] is None
 
 
-def test_batch_cli_preserves_bench_state_isolation_and_retry_history(tmp_path):
+@pytest.mark.parametrize("workers", [1, 3])
+def test_batch_cli_preserves_bench_state_isolation_and_retry_history(tmp_path, workers):
     cases = [
         {"name": "mutate", "steps": [
             {"action": "set_voltage", "value": 12}, {"action": "set_temperature", "value": 95},
@@ -126,7 +127,7 @@ def test_batch_cli_preserves_bench_state_isolation_and_retry_history(tmp_path):
     plan.write_text(yaml.safe_dump({"plan": "isolated", "suites": [f"{i}.yaml" for i in range(3)]}))
     root = tmp_path / "reports"
     for _ in range(2):
-        finished = cli("--plan", plan, "--report-dir", root, "--quiet")
+        finished = cli("--plan", plan, "--workers", workers, "--report-dir", root, "--quiet")
         assert finished.returncode == 1, finished.stderr
     manifests = list(root.glob("*/batch.json"))
     assert len(manifests) == 2

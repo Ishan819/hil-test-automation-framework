@@ -69,3 +69,62 @@ def test_worker_exception_is_visible_in_cli_and_manifest(tmp_path, monkeypatch, 
     data = json.loads(next(root.glob("*/batch.json")).read_text())
     assert data["suites"][0]["report_file"] is None
     assert data["suites"][1]["report"]["passed"] == 3
+
+
+@pytest.mark.parametrize("workers", [1, 2, 8])
+@pytest.mark.parametrize("plan, code, statuses, counts", [
+    ("recovery.yaml", 0, ["passed", "passed"], (6, 0)),
+    ("faults.yaml", 1, ["passed", "failed", "passed"], (6, 2)),
+])
+@pytest.mark.parametrize("report_format", ["json", "junit", "protobuf"])
+def test_real_cli_sequential_and_parallel_reports(tmp_path, workers, plan, code, statuses, counts, report_format):
+    from xml.etree import ElementTree as ET
+    from hil_automation.protobuf import parse_result
+
+    root = tmp_path / "reports"
+    for _ in range(2):
+        finished = cli("--plan", ROOT / "plans" / plan, "--workers", workers,
+                       "--report-dir", root, "--report-format", report_format, "--quiet")
+        assert finished.returncode == code, finished.stderr
+        assert finished.stderr == ""
+        assert "Batch results:" in finished.stdout
+    manifests = list(root.glob("*/batch.json"))
+    assert len(manifests) == 2
+    run_ids = set()
+    for manifest in manifests:
+        data = json.loads(manifest.read_text())
+        assert data["workers"] == workers
+        assert [item["status"] for item in data["suites"]] == statuses
+        stats = data["statistics"]
+        assert (stats["passed_cases"], stats["failed_cases"]) == counts
+        assert stats["total_cases"] == stats["executed_cases"] == sum(counts)
+        assert stats["skipped_cases"] == stats["unreported_cases"] == 0
+        run_ids.add(data["run_id"])
+        for item in data["suites"]:
+            report = item["report"]
+            run_ids.add(report["run_id"])
+            path = manifest.parent / item["report_file"]
+            assert path.is_file()
+            if report_format == "json":
+                assert json.loads(path.read_text()) == report
+            elif report_format == "junit":
+                suite = ET.parse(path).getroot()
+                assert suite.get("id") == report["run_id"]
+                assert suite.get("name") == item["suite"]
+                assert int(suite.get("tests")) == item["planned_cases"]
+                assert int(suite.get("failures")) == report["failed"]
+            else:
+                result = parse_result(path.read_bytes())
+                assert result.run_id == report["run_id"] and result.suite == item["suite"]
+                assert (result.summary.passed, result.summary.failed) == (report["passed"], report["failed"])
+    assert len(run_ids) == 2 * (len(statuses) + 1)
+
+
+def test_parallel_cli_output_failure_returns_two_without_success(tmp_path):
+    root = tmp_path / "existing"
+    root.write_text("keep")
+    finished = cli("--plan", ROOT / "plans/recovery.yaml", "--workers", "2", "--report-dir", root)
+    assert finished.returncode == 2
+    assert "Cannot write batch report" in finished.stderr
+    assert not finished.stdout
+    assert root.read_text() == "keep"
