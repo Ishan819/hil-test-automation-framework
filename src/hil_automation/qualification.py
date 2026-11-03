@@ -102,6 +102,8 @@ def _steps_match(steps, expected, status):
             not isinstance(step, StepResult) or type(step.index) is not int or step.index != index
             or step.action != configured.get("action") or not _duration(step.duration_ms)
             or step.status not in ("passed", "failed", "skipped")
+            or not isinstance(step.details, str) or not step.details.strip()
+            or (step.failure_category is not None and step.status != "failed")
         ):
             return False
         statuses.append(step.status)
@@ -116,7 +118,13 @@ def _steps_match(steps, expected, status):
 
 
 def _case_evidence(case, test):
-    if not _duration(case.duration_ms) or not isinstance(case.attempts, list):
+    categories = ("assertion_failure", "simulated_connection_failure")
+    if (
+        not _duration(case.duration_ms) or not isinstance(case.attempts, list)
+        or not isinstance(case.details, str) or not case.details.strip()
+        or (case.status == "failed" and case.failure_category not in categories)
+        or (case.status != "failed" and case.failure_category is not None)
+    ):
         return False
     if not _steps_match(case.steps, test.steps, case.status):
         return False
@@ -129,8 +137,13 @@ def _case_evidence(case, test):
             not isinstance(attempt, AttemptResult) or type(attempt.number) is not int
             or attempt.number != number or not _duration(attempt.duration_ms)
             or type(attempt.retryable) is not bool
+            or not isinstance(attempt.details, str) or not attempt.details.strip()
+            or (attempt.status == "passed" and (attempt.failure_category is not None or attempt.retryable))
+            or (attempt.status == "failed" and attempt.failure_category not in categories)
             or not _steps_match(attempt.steps, test.steps, attempt.status)
         ):
+            return False
+        if any(step.status == "failed" and step.failure_category != attempt.failure_category for step in attempt.steps):
             return False
         if number < len(case.attempts) and (
             attempt.status != "failed" or not attempt.retryable
@@ -184,7 +197,9 @@ def _suite_metrics(report, expected, index, seen, issues, references):
         issues.append("missing_suite_report")
         return ObservedMetrics(total_cases=total, incomplete_cases=total)
     references.append(_reference(report, "suite", index, seen, issues))
-    if report.suite != expected.name or report.native_results or report.native_exit_code is not None:
+    if report.schema_version != "1.0":
+        issues.append("unsupported_execution_schema")
+    if report.suite != expected.name or report.native_results != [] or report.native_exit_code is not None:
         issues.append("suite_identity_or_origin_mismatch")
     cases = report.results if isinstance(report.results, list) else []
     if len(cases) != total or len({test.name for test in expected.tests}) != total:
@@ -244,6 +259,12 @@ def evaluate_qualification(
                 if execution.error is not None:
                     issues.append("worker_failure")
                 report = execution.report
+                if isinstance(report, RunReport):
+                    batch_start, batch_end = _timestamp(result.started_at), _timestamp(result.finished_at)
+                    suite_start, suite_end = _timestamp(report.started_at), _timestamp(report.finished_at)
+                    if all(value is not None for value in (batch_start, batch_end, suite_start, suite_end)):
+                        if not batch_start <= suite_start <= suite_end <= batch_end:
+                            issues.append("suite_timing_outside_batch")
             observations.append(_suite_metrics(report, entry.suite, index, seen, issues, references))
     else:
         issues.append("missing_expected_inventory")
