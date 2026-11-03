@@ -31,6 +31,17 @@ def workload(suites, steps):
     ])
 
 
+def measure(suites, steps, workers):
+    """Time real suite execution, with a new plan, benches and reports each time."""
+    plan = workload(suites, steps)
+    started = perf_counter()
+    batch = run_plan(plan, workers=workers)
+    elapsed = perf_counter() - started
+    if batch.status != "passed" or len(batch.suites) != suites:
+        raise RuntimeError("Benchmark workload did not complete successfully")
+    return elapsed
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--suites", type=bounded_integer(1, 128), default=8)
@@ -40,20 +51,13 @@ def main():
     parser.add_argument("--warmups", type=bounded_integer(0, 10), default=0)
     args = parser.parse_args()
     measurements = {1: [], args.workers: []}
-    for _ in range(args.warmups):
-        for workers in measurements:
-            run_plan(workload(args.suites, args.steps), workers=workers)
-    for repeat in range(args.repeats):
-        # Alternate measurement order to reduce systematic warm-up bias.
+    for repeat in range(-args.warmups, args.repeats):
+        # Alternate order; warm-ups execute the same workload but are discarded.
         order = (1, args.workers) if repeat % 2 == 0 else (args.workers, 1)
         for workers in order:
-            plan = workload(args.suites, args.steps)
-            started = perf_counter()
-            batch = run_plan(plan, workers=workers)
-            elapsed = perf_counter() - started
-            if batch.status != "passed" or len(batch.suites) != args.suites:
-                raise RuntimeError("Benchmark workload did not complete successfully")
-            measurements[workers].append(elapsed)
+            elapsed = measure(args.suites, args.steps, workers)
+            if repeat >= 0:
+                measurements[workers].append(elapsed)
     print(json.dumps({
         "workload": {"suites": args.suites, "steps_per_suite": args.steps, "repeats": args.repeats},
         "measurements": [{"workers": workers, "wall_seconds": values, "median_seconds": median(values)}

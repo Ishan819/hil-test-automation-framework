@@ -36,3 +36,38 @@ def test_benchmark_rejects_invalid_arguments(flag, value):
 def test_benchmark_bounds(flag, value):
     result = subprocess.run([sys.executable, str(SCRIPT), flag, value], capture_output=True)
     assert result.returncode == 2
+
+
+def load_benchmark():
+    import importlib.util
+    spec = importlib.util.spec_from_file_location("benchmark", SCRIPT)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+def test_measure_uses_fresh_real_execution_and_clock(monkeypatch):
+    benchmark = load_benchmark()
+    original = benchmark.run_plan
+    observed = []
+    def run(plan, **kwargs):
+        batch = original(plan, **kwargs)
+        observed.append((plan, batch))
+        return batch
+    monkeypatch.setattr(benchmark, "run_plan", run)
+    ticks = iter([1, 1.25, 2, 2.5])
+    monkeypatch.setattr(benchmark, "perf_counter", lambda: next(ticks))
+    # Synthetic clock fixture verifies accounting, not performance.
+    assert benchmark.measure(2, 4, 1) == .25
+    assert benchmark.measure(2, 4, 2) == .5
+    assert observed[0][0] == observed[1][0]
+    assert observed[0][0] is not observed[1][0]
+    assert len({suite.report.run_id for _, batch in observed for suite in batch.suites}) == 4
+
+
+def test_measure_rejects_incomplete_execution(monkeypatch):
+    from types import SimpleNamespace
+    benchmark = load_benchmark()
+    monkeypatch.setattr(benchmark, "run_plan", lambda *a, **k: SimpleNamespace(status="failed", suites=[]))
+    with pytest.raises(RuntimeError, match="did not complete"):
+        benchmark.measure(2, 4, 2)
