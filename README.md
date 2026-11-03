@@ -103,3 +103,55 @@ Exit codes remain 0 for execution and qualification success, 1 for failed tests 
 rejected qualification, and 2 for configuration or report-writing errors. A lenient
 policy does not hide a test-failure exit. Existing execution reports stay unchanged.
 These policies evaluate simulated software tests, not physical hardware safety.
+
+## Repeatable performance and reliability checks
+
+Activate the project environment first (`source .venv/bin/activate`) and install
+`python -m pip install -e ".[dev]"`. Python 3.10–3.12 are checked in CI.
+
+```bash
+python tools/benchmark_parallel.py --suites 8 --steps 2000 --workers 4 --repeats 20 --warmups 2 --output reports/benchmark.json
+python -m pytest -q --cov --cov-report=term-missing --cov-report=xml:reports/coverage.xml
+```
+
+The benchmark is opt-in. Each suite runs one `voltage-cycle` case alternating
+setting 5 V and asserting 5 V on the real Python simulator. Each run builds fresh
+inputs and creates independent benches and in-memory reports; nothing is written
+during timing. `perf_counter()` measures execution, including orchestration and
+parallel input snapshots, but excludes workload construction and report export.
+Sequential and parallel runs use the same steps and alternate measurement order.
+Warm-ups are discarded. Synthetic clocks in unit tests verify arithmetic only.
+
+Bounds: 1–128 suites, 1–100000 steps per suite, 1–100 repetitions, 0–10 warm-ups,
+and 2–8 parallel workers (the sequential baseline always uses one).
+JSON includes every observed duration in seconds, Python/OS versions, configuration,
+median/minimum/maximum/mean, and speedup = sequential median / mode median.
+A zero median gives null speedup. p95 appears only with at least 20 measurements,
+using the sorted sample at one-based rank `ceil(0.95 * n)`. This is a descriptive
+sample statistic, not a latency guarantee. Threads may be slower for this CPU-bound
+workload. Compare results on the same machine and configuration.
+
+Coverage measures statements and branches, including Python subprocesses, and
+excludes generated Protobuf bindings. pytest-cov is a development dependency;
+there is no enforced percentage threshold. CI runs deterministic stress tests
+and exports coverage without asserting benchmark timing.
+
+## Software-only release demonstration
+
+From the repository root with the environment activated:
+
+```bash
+python tools/demo_release.py --workers 2 --output-dir reports/demo
+```
+
+The demo loads the existing recovery and fault YAML plans, runs multiple suites,
+and applies `policies/strict.yaml`. It exports individual binary Protobuf reports,
+a JSON batch manifest, and `qualification.json` in a unique directory per batch.
+The printed JSON shows each decision, observed case counts, individual criteria,
+failure reasons, and run IDs linking the decision to execution evidence.
+Recovery qualifies; faults intentionally fails two cases and is rejected.
+The demonstration returns 0 when both expected outcomes are reproduced and 2 on
+an unexpected outcome or configuration/publication error. The existing `hil-run`
+exit codes are unchanged. Repeated demos preserve earlier outputs. All reports
+and coverage artifacts are ignored by Git. This validates simulated software
+behavior only; it makes no real hardware or safety certification claim.

@@ -1,0 +1,40 @@
+import json
+from pathlib import Path
+import subprocess
+import sys
+
+from hil_automation.protobuf import parse_result
+
+SCRIPT = Path(__file__).resolve().parents[1] / "tools/demo_release.py"
+
+
+def test_demo_runs_from_any_directory_and_exports_both_decisions(tmp_path):
+    for _ in range(2):
+        process = subprocess.run([sys.executable, str(SCRIPT), "--output-dir", str(tmp_path / "reports")],
+                                 cwd=tmp_path, capture_output=True, text=True)
+        assert process.returncode == 0, process.stderr
+        examples = json.loads(process.stdout)["demonstrations"]
+        assert [e["decision"] for e in examples] == ["qualified", "not_qualified"]
+        assert [e["execution_status"] for e in examples] == ["passed", "failed"]
+        assert [e["observed"]["failed_cases"] for e in examples] == [0, 2]
+        for example in examples:
+            manifest = Path(example["manifest"])
+            batch = json.loads(manifest.read_text())
+            qualification = json.loads(Path(example["qualification_report"]).read_text())
+            assert qualification["decision"] == example["decision"]
+            assert qualification["criteria"] == example["criteria"]
+            assert batch["run_id"] == example["execution_references"][0]["run_id"]
+            for suite in batch["suites"]:
+                message = parse_result((manifest.parent / suite["report_file"]).read_bytes())
+                assert message.run_id == suite["report"]["run_id"]
+    assert len(list((tmp_path / "reports").glob("*/batch.json"))) == 4
+
+
+def test_demo_publication_failure_returns_error(tmp_path):
+    output = tmp_path / "occupied"
+    output.write_text("preserve me")
+    process = subprocess.run([sys.executable, str(SCRIPT), "--output-dir", str(output)],
+                             capture_output=True, text=True)
+    assert process.returncode == 2 and "Demo failed" in process.stderr
+    assert not process.stdout
+    assert output.read_text() == "preserve me"

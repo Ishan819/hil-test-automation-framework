@@ -26,6 +26,8 @@ jobs:
         with:
           name: python-coverage-${{ matrix.python-version }}
           path: reports/coverage.xml
+      - name: Verify software-only release demonstration
+        run: python tools/demo_release.py --workers 2 --output-dir reports/demo
       - name: Run sample suite
         run: hil-run scenarios/smoke.yaml
       - name: Run recovery suite with JUnit report
