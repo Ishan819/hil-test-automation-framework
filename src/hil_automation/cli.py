@@ -7,7 +7,12 @@ from .config import Suite, load_suite
 from .native import NativeExecutionError, run_native_tests
 from .orchestration import run_plan, write_batch_report
 from .plans import MAX_WORKERS, load_plan
-from .reporting import native_report, write_json_report, write_junit_report, write_protobuf_report
+from .qualification import evaluate_qualification
+from .qualification_policy import load_policy
+from .reporting import (
+    native_report, write_json_report, write_junit_report, write_protobuf_report,
+    write_qualification_report,
+)
 from .runner import run_suite
 
 
@@ -75,10 +80,15 @@ def _run_native(args: argparse.Namespace) -> int:
 
 def _run_plan(args: argparse.Namespace) -> int:
     try:
-        batch = run_plan(load_plan(args.plan), fail_fast=args.fail_fast, workers=args.workers)
+        policy = load_policy(args.qualification_policy) if args.qualification_policy is not None else None
+        plan = load_plan(args.plan)
+        batch = run_plan(plan, fail_fast=args.fail_fast, workers=args.workers)
+        qualification = evaluate_qualification(batch, policy, expected=plan) if policy is not None else None
         manifest = write_batch_report(
             batch, args.report_dir or "reports/plans", args.report_format or "json",
         )
+        if qualification is not None:
+            write_qualification_report(qualification, manifest.parent / "qualification.json")
     except (ValueError, OSError) as exc:
         print(f"Error: {exc}", file=sys.stderr)
         return 2
@@ -97,13 +107,23 @@ def _run_plan(args: argparse.Namespace) -> int:
         f"Batch results: {statistics['passed_suites']} passed, "
         f"{statistics['failed_suites']} failed, {statistics['skipped_suites']} skipped"
     )
-    return 1 if batch.status == "failed" else 0
+    if qualification is not None:
+        print(f"Qualification: {'qualified' if qualification.qualified else 'not qualified'}")
+        if not args.quiet:
+            for reason in qualification.to_dict()["failure_reasons"]:
+                print(f"  {reason}")
+            print(f"Qualification report: {manifest.parent / 'qualification.json'}")
+    return 1 if batch.status == "failed" or (qualification is not None and not qualification.qualified) else 0
 
 
 def main() -> int:
     parser = argparse.ArgumentParser(description="Run a simulated HIL test suite")
     parser.add_argument("config", nargs="?", help="Path to a YAML test suite")
     parser.add_argument("--plan", metavar="YAML", help="Run an ordered YAML execution plan")
+    parser.add_argument(
+        "--qualification-policy", metavar="YAML",
+        help="Evaluate a simulated plan; write qualification.json in its batch directory (requires --plan)",
+    )
     parser.add_argument(
         "--workers", type=int, metavar="N",
         help=f"Simulated suite workers, 1-{MAX_WORKERS} (requires --plan; overrides plan workers)",
@@ -158,6 +178,8 @@ def main() -> int:
         ):
             parser.error("--plan cannot be combined with single-suite, native, selection, or --report options")
         return _run_plan(args)
+    if args.qualification_policy is not None:
+        parser.error("--qualification-policy requires --plan")
     if args.workers is not None:
         parser.error("--workers requires --plan")
     if args.report_dir is not None:
