@@ -29,3 +29,10 @@ def test_benchmark_rejects_invalid_arguments(flag, value):
     result = subprocess.run([sys.executable, str(SCRIPT), flag, value], capture_output=True, text=True)
     assert result.returncode == 2
     assert not result.stdout
+
+
+@pytest.mark.parametrize("flag,value", [("--warmups", "-1"), ("--warmups", "11"),
+    ("--suites", "129"), ("--steps", "100001"), ("--repeats", "101")])
+def test_benchmark_bounds(flag, value):
+    result = subprocess.run([sys.executable, str(SCRIPT), flag, value], capture_output=True)
+    assert result.returncode == 2

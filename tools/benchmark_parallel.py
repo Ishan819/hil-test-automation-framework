@@ -10,11 +10,13 @@ from hil_automation.orchestration import run_plan
 from hil_automation.plans import MAX_WORKERS, ExecutionPlan, PlanSuite
 
 
-def positive_integer(value):
-    number = int(value)
-    if number < 1:
-        raise argparse.ArgumentTypeError("must be a positive integer")
-    return number
+def bounded_integer(low, high):
+    def parse(value):
+        number = int(value)
+        if not low <= number <= high:
+            raise argparse.ArgumentTypeError(f"must be between {low} and {high}")
+        return number
+    return parse
 
 
 def workload(suites, steps):
@@ -31,12 +33,16 @@ def workload(suites, steps):
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--suites", type=positive_integer, default=8)
-    parser.add_argument("--steps", type=positive_integer, default=2000, help="Steps per suite")
-    parser.add_argument("--repeats", type=positive_integer, default=3)
+    parser.add_argument("--suites", type=bounded_integer(1, 128), default=8)
+    parser.add_argument("--steps", type=bounded_integer(1, 100000), default=2000, help="Steps per suite")
+    parser.add_argument("--repeats", type=bounded_integer(1, 100), default=3)
     parser.add_argument("--workers", type=int, choices=range(2, MAX_WORKERS + 1), default=4)
+    parser.add_argument("--warmups", type=bounded_integer(0, 10), default=0)
     args = parser.parse_args()
     measurements = {1: [], args.workers: []}
+    for _ in range(args.warmups):
+        for workers in measurements:
+            run_plan(workload(args.suites, args.steps), workers=workers)
     for repeat in range(args.repeats):
         # Alternate measurement order to reduce systematic warm-up bias.
         order = (1, args.workers) if repeat % 2 == 0 else (args.workers, 1)
