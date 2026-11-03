@@ -84,3 +84,17 @@ def test_p95_nearest_rank_requires_twenty_samples():
     stats = load_benchmark().statistics
     assert "p95_seconds" not in stats(list(range(1, 20)), 1)
     assert stats(list(range(20, 0, -1)), 1)["p95_seconds"] == 19
+
+
+def test_json_export_matches_stdout_without_private_metadata(tmp_path):
+    output = tmp_path / "benchmark.json"
+    result = subprocess.run([sys.executable, str(SCRIPT), "--suites", "2", "--steps", "4",
+        "--repeats", "2", "--workers", "2", "--warmups", "1", "--output", str(output)],
+        capture_output=True, text=True)
+    assert result.returncode == 0, result.stderr
+    assert output.read_text() == result.stdout
+    data = json.loads(result.stdout)
+    assert set(data["metadata"]) == {"python_version", "system", "units", "measurement", "warmups", "p95_method"}
+    assert data["metadata"]["measurement"] == "real_simulated_suite_execution"
+    assert str(tmp_path) not in result.stdout
+    assert all(len(item["wall_seconds"]) == 2 for item in data["measurements"])

@@ -1,6 +1,7 @@
 """Opt-in wall-clock comparison of CPU-bound software-simulated suite execution."""
 import argparse
 import json
+import platform
 from pathlib import Path
 from statistics import median, mean
 from math import ceil
@@ -63,6 +64,7 @@ def main():
     parser.add_argument("--repeats", type=bounded_integer(1, 100), default=3)
     parser.add_argument("--workers", type=int, choices=range(2, MAX_WORKERS + 1), default=4)
     parser.add_argument("--warmups", type=bounded_integer(0, 10), default=0)
+    parser.add_argument("--output", type=Path, help="Also atomically export JSON to this file")
     args = parser.parse_args()
     measurements = {1: [], args.workers: []}
     for repeat in range(-args.warmups, args.repeats):
@@ -72,13 +74,22 @@ def main():
             elapsed = measure(args.suites, args.steps, workers)
             if repeat >= 0:
                 measurements[workers].append(elapsed)
-    print(json.dumps({
+    payload = {
+        "schema_version": "1.0",
+        "metadata": {"python_version": platform.python_version(), "system": platform.system(),
+                     "units": "seconds", "measurement": "real_simulated_suite_execution",
+                     "warmups": args.warmups, "p95_method": "nearest rank ceil(0.95*n), n >= 20"},
         "workload": {"suites": args.suites, "steps_per_suite": args.steps, "repeats": args.repeats},
         "measurements": [{"workers": workers, "wall_seconds": values, **statistics(values, median(measurements[1]))}
                          for workers, values in measurements.items()],
         "note": "Execution only, including input snapshots; excludes plan construction and report writing. "
                 "Threads do not guarantee faster execution, especially for this CPU-bound simulator.",
-    }, indent=2))
+    }
+    content = json.dumps(payload, indent=2, allow_nan=False) + "\n"
+    if args.output:
+        from hil_automation.reporting import _atomic_write
+        _atomic_write(args.output, content)
+    print(content, end="")
     return 0
 
 
