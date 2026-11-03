@@ -35,3 +35,26 @@ def test_simultaneous_batches_keep_aggregation_independent():
     assert all(b.to_dict()["statistics"]["passed_cases"] == 9 for b in batches)
     batches[0].suites[0].report.results.clear()
     assert all(len(b.suites[0].report.results) == 1 for b in batches[1:])
+
+
+def test_repeated_aliased_retry_inputs_and_histories_remain_isolated():
+    shared = entry("retry", [
+        {"action": "expect_voltage", "value": 0, "tolerance": 0},
+        {"action": "set_voltage", "value": 12},
+        {"action": "expect_temperature_below", "limit_c": 0},
+    ], retries=2)
+    plan = ExecutionPlan("aliases", [shared] * 8, 4)
+    for _ in range(10):
+        batch = run_plan(plan)
+        assert batch.to_dict()["statistics"]["failed_cases"] == 8
+        cases = [s.report.results[0] for s in batch.suites]
+        assert all(len(c.attempts) == 3 for c in cases)
+        assert all(a.steps[0].status == "passed" for c in cases for a in c.attempts)
+        cases[0].attempts[0].steps[0].details = "private mutation"
+        cases[0].steps[0].details = "final mutation"
+        assert all(c.attempts[0].steps[0].details == "Step passed" for c in cases[1:])
+        snapshot = batch.to_dict()
+        snapshot["suites"][1]["report"]["results"][0]["attempts"].clear()
+        assert len(cases[1].attempts) == 3
+    assert shared.suite.bench == {}
+    assert shared.suite.tests[0].steps[0] == {"action": "expect_voltage", "value": 0, "tolerance": 0}
