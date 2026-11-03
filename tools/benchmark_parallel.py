@@ -2,7 +2,8 @@
 import argparse
 import json
 from pathlib import Path
-from statistics import median
+from statistics import median, mean
+from math import ceil
 from time import perf_counter
 
 from hil_automation.config import Suite, TestCase
@@ -42,6 +43,19 @@ def measure(suites, steps, workers):
     return elapsed
 
 
+def statistics(values, baseline):
+    """p95 uses nearest rank ceil(.95*n), only for at least 20 samples."""
+    middle = median(values)
+    result = {
+        "median_seconds": middle, "min_seconds": min(values),
+        "max_seconds": max(values), "mean_seconds": mean(values),
+        "speedup": baseline / middle if middle > 0 else None,
+    }
+    if len(values) >= 20:
+        result["p95_seconds"] = sorted(values)[ceil(.95 * len(values)) - 1]
+    return result
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--suites", type=bounded_integer(1, 128), default=8)
@@ -60,7 +74,7 @@ def main():
                 measurements[workers].append(elapsed)
     print(json.dumps({
         "workload": {"suites": args.suites, "steps_per_suite": args.steps, "repeats": args.repeats},
-        "measurements": [{"workers": workers, "wall_seconds": values, "median_seconds": median(values)}
+        "measurements": [{"workers": workers, "wall_seconds": values, **statistics(values, median(measurements[1]))}
                          for workers, values in measurements.items()],
         "note": "Execution only, including input snapshots; excludes plan construction and report writing. "
                 "Threads do not guarantee faster execution, especially for this CPU-bound simulator.",

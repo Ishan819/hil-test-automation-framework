@@ -71,3 +71,16 @@ def test_measure_rejects_incomplete_execution(monkeypatch):
     monkeypatch.setattr(benchmark, "run_plan", lambda *a, **k: SimpleNamespace(status="failed", suites=[]))
     with pytest.raises(RuntimeError, match="did not complete"):
         benchmark.measure(2, 4, 2)
+
+
+def test_statistics_and_small_sample_percentile():
+    stats = load_benchmark().statistics([4, 1, 2, 3], 5)
+    assert stats == {"median_seconds": 2.5, "min_seconds": 1, "max_seconds": 4,
+                     "mean_seconds": 2.5, "speedup": 2}
+    assert load_benchmark().statistics([0], 1)["speedup"] is None
+
+
+def test_p95_nearest_rank_requires_twenty_samples():
+    stats = load_benchmark().statistics
+    assert "p95_seconds" not in stats(list(range(1, 20)), 1)
+    assert stats(list(range(20, 0, -1)), 1)["p95_seconds"] == 19
