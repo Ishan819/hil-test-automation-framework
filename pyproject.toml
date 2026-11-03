@@ -11,7 +11,7 @@ requires-python = ">=3.10"
 dependencies = ["PyYAML>=6.0,<7", "protobuf==6.33.6"]
 
 [project.optional-dependencies]
-dev = ["pytest>=8,<10"]
+dev = ["pytest>=8,<10", "pytest-cov>=7,<8"]
 
 [project.scripts]
 hil-run = "hil_automation.cli:main"
@@ -25,3 +25,12 @@ markers = [
     "native_integration: requires an explicitly configured or locally built GoogleTest binary",
     "protobuf_integration: requires the compiled Protobuf interoperability utility",
 ]
+
+[tool.coverage.run]
+branch = true
+patch = ["subprocess"]
+source = ["hil_automation"]
+omit = ["*/proto/*"]
+
+[tool.coverage.report]
+show_missing = true

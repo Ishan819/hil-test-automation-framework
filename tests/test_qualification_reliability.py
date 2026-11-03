@@ -124,3 +124,39 @@ def test_cli_worker_failure_cannot_be_hidden_by_permissive_policy(tmp_path, monk
     data = json.loads(next(root.glob("*/qualification.json")).read_text())
     assert not data["qualified"] and "worker_failure" in data["evidence_issues"]
     assert data["observed"]["incomplete_cases"] == data["observed"]["passed_cases"] == 3
+
+
+@pytest.mark.parametrize("damage", ["step_index", "step_status", "category", "retryable"])
+def test_damaged_retry_step_evidence_cannot_qualify(damage):
+    suite = entry("retry-evidence", [
+        {"action": "expect_temperature_below", "limit_c": 0},
+    ], retries=1).suite
+    report = run_suite(suite)
+    case = report.results[0]
+    if damage == "step_index":
+        case.attempts[0].steps[0].index = True
+    elif damage == "step_status":
+        case.attempts[0].steps[0].status = "passed"
+    elif damage == "category":
+        case.attempts[0].steps[0].failure_category = "simulated_connection_failure"
+    else:
+        case.attempts[0].retryable = False
+    result = evaluate_qualification(report, QualificationPolicy(0, 10, True, True), expected=suite)
+    assert not result.qualified and not result.complete
+    assert result.metrics.incomplete_cases == 1
+
+
+def test_missing_batch_and_wrong_planned_suite_cannot_qualify():
+    plan = ExecutionPlan("inventory", [entry("one")])
+    policy = QualificationPolicy(0, 10, True, True)
+    missing = evaluate_qualification(None, policy, expected=plan)
+    assert not missing.qualified and "missing_batch_report" in missing.issues
+    batch = run_plan(plan)
+    batch.suites[0].case_count = 2
+    wrong = evaluate_qualification(batch, policy, expected=plan)
+    assert not wrong.qualified and "planned_suite_mismatch" in wrong.issues
+
+
+def test_qualification_requires_validated_policy_object():
+    with pytest.raises(ValueError, match="validated qualification policy"):
+        evaluate_qualification(None, {}, expected=entry("one").suite)

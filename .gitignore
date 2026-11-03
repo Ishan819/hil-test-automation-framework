@@ -18,3 +18,8 @@ reports/
 /build/
 /cpp/build/
 cmake-build-*/
+
+# Coverage artifacts
+.coverage*
+htmlcov/
+coverage.xml
