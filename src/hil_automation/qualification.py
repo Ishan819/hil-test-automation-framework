@@ -1,5 +1,5 @@
 """Evaluate completed simulated runs against policies and their expected inventory."""
-from dataclasses import dataclass
+from dataclasses import asdict, dataclass
 from datetime import datetime, timezone
 from decimal import Decimal
 import math
@@ -65,6 +65,23 @@ class QualificationResult:
     @property
     def qualified(self) -> bool:
         return all(criterion.passed for criterion in self.criteria)
+
+    def to_dict(self) -> dict:
+        """Export only validated IDs, timestamps, numeric observations and fixed diagnostics."""
+        return {
+            "schema_version": "1.0", "scope": "simulated_software_tests",
+            "decision": "qualified" if self.qualified else "not_qualified",
+            "qualified": self.qualified, "complete_evidence": self.complete,
+            "evaluated_at": self.evaluated_at, "policy": asdict(self.policy),
+            "observed": {**asdict(self.metrics), "pass_percentage": self.metrics.pass_percentage},
+            "criteria": [{
+                "name": item.name, "expected": item.expected, "observed": item.observed,
+                "passed": item.passed, "reason": None if item.passed else item.failure_reason,
+            } for item in self.criteria],
+            "execution_references": [asdict(reference) for reference in self.references],
+            "evidence_issues": list(self.issues),
+            "failure_reasons": [item.failure_reason for item in self.criteria if not item.passed],
+        }
 
 
 @dataclass(frozen=True)

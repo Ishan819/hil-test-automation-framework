@@ -155,3 +155,16 @@ def write_protobuf_report(report: RunReport, path: str | Path) -> None:
         _atomic_write(destination, content)
     except (OSError, ValueError) as exc:
         raise ReportError(f"Cannot write Protobuf report to {str(path)!r}: {exc}") from exc
+
+
+def write_qualification_report(report, path: str | Path) -> None:
+    """Atomically publish a separate qualification JSON document."""
+    from .qualification import QualificationResult
+
+    if not isinstance(report, QualificationResult):
+        raise ReportError("A qualification result is required")
+    try:
+        content = json.dumps(report.to_dict(), indent=2, allow_nan=False) + "\n"
+        _atomic_write(path, content)
+    except (TypeError, ValueError, OverflowError, OSError) as exc:
+        raise ReportError("Cannot write qualification report") from exc
