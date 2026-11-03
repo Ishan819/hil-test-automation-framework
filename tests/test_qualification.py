@@ -1,5 +1,3 @@
-from copy import deepcopy
-
 import pytest
 
 from hil_automation.config import Suite
@@ -66,3 +64,79 @@ def test_missing_inventory_empty_and_missing_runs_do_not_qualify():
     assert not evaluate_qualification(None, policy, expected=suite).qualified
     empty = Suite("empty", {}, [])
     assert not evaluate_qualification(run_suite(empty), policy, expected=empty).qualified
+
+
+def test_skipped_cases_are_separate_from_failures_and_require_explicit_permission():
+    from hil_automation.config import TestCase as HilTestCase
+
+    suite = Suite("skips", {}, [
+        HilTestCase("failure", [{"action": "expect_temperature_below", "limit_c": 0}]),
+        HilTestCase("later", [{"action": "expect_heartbeat"}]),
+    ])
+    report = run_suite(suite, fail_fast=True)
+    result = evaluate_qualification(report, QualificationPolicy(0, 1, True), expected=suite)
+    assert result.qualified and result.complete
+    assert (result.metrics.failed_cases, result.metrics.skipped_cases, result.metrics.incomplete_cases) == (1, 1, 0)
+    denied = evaluate_qualification(report, QualificationPolicy(0, 1), expected=suite)
+    assert not denied.qualified
+    assert not next(item for item in denied.criteria if item.name == "allow_skipped").passed
+
+
+def test_recovered_cases_are_counted_once_and_checked_against_policy(monkeypatch):
+    from hil_automation import runner
+
+    suite = entry("recover", [{"action": "expect_heartbeat"}], retries=2).suite
+    original = runner.make_bench
+    calls = []
+    def make(config):
+        bench = original(config)
+        if not calls:
+            bench.set_connected(False)
+        calls.append(bench)
+        return bench
+    monkeypatch.setattr(runner, "make_bench", make)
+    report = run_suite(suite)
+    strict = evaluate_qualification(report, QualificationPolicy(), expected=suite)
+    allowed = evaluate_qualification(report, QualificationPolicy(allow_recovered=True), expected=suite)
+    assert not strict.qualified and allowed.qualified
+    assert allowed.metrics.total_cases == allowed.metrics.passed_cases == allowed.metrics.recovered_cases == 1
+    assert allowed.metrics.failed_cases == 0
+    outcome = next(item for item in strict.criteria if item.name == "allow_recovered")
+    assert (outcome.expected, outcome.observed, outcome.passed) == (False, 1, False)
+
+
+@pytest.mark.parametrize("damage", ["number", "missing", "early_pass", "budget", "steps", "final"])
+def test_corrupted_attempt_evidence_cannot_qualify(damage):
+    suite = entry("attempts", [{"action": "expect_temperature_below", "limit_c": 0}], retries=1).suite
+    report = run_suite(suite)
+    case = report.results[0]
+    if damage == "number":
+        case.attempts[0].number = 2
+    elif damage == "missing":
+        case.attempts.clear()
+    elif damage == "early_pass":
+        case.attempts[0].status = "passed"
+    elif damage == "budget":
+        case.attempts.append(case.attempts[-1])
+    elif damage == "steps":
+        case.attempts[0].steps.clear()
+    else:
+        case.status = "passed"
+        report.passed, report.failed = 1, 0
+    result = evaluate_qualification(report, QualificationPolicy(0, 10, True, True), expected=suite)
+    assert not result.qualified
+    assert result.metrics.incomplete_cases == 1
+    assert "inconsistent_case_or_retry_evidence" in result.issues
+
+
+def test_worker_errors_are_incomplete_not_skipped_or_failed_cases(monkeypatch):
+    from hil_automation import orchestration
+
+    plan = ExecutionPlan("worker", [entry("broken")], 2)
+    def broken(suite):
+        raise RuntimeError("worker stopped")
+    monkeypatch.setattr(orchestration, "run_suite", broken)
+    result = evaluate_qualification(run_plan(plan), QualificationPolicy(0, 10, True, True), expected=plan)
+    assert not result.qualified and "worker_failure" in result.issues
+    assert result.metrics.incomplete_cases == 1
+    assert result.metrics.failed_cases == result.metrics.skipped_cases == 0

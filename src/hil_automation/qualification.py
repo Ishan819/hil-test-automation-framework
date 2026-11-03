@@ -9,7 +9,7 @@ from .config import Suite
 from .orchestration import BatchReport, SuiteExecution
 from .plans import ExecutionPlan
 from .qualification_policy import QualificationPolicy
-from .runner import CaseResult, RunReport
+from .runner import AttemptResult, CaseResult, RunReport, StepResult
 
 
 @dataclass(frozen=True)
@@ -46,15 +46,86 @@ class QualificationResult:
     evaluated_at: str
 
     @property
-    def qualified(self) -> bool:
+    def criteria(self) -> tuple["CriterionOutcome", ...]:
         metrics, policy = self.metrics, self.policy
+        percentage_ok = metrics.passed_cases * 100 >= Decimal(str(policy.min_pass_percentage)) * metrics.total_cases
         return (
-            self.complete
-            and metrics.passed_cases * 100 >= Decimal(str(policy.min_pass_percentage)) * metrics.total_cases
-            and metrics.failed_cases <= policy.max_failed_cases
-            and (policy.allow_skipped or metrics.skipped_cases == 0)
-            and (policy.allow_recovered or metrics.recovered_cases == 0)
+            CriterionOutcome("complete_evidence", True, self.complete, self.complete,
+                             "Execution evidence is incomplete or inconsistent"),
+            CriterionOutcome("min_pass_percentage", policy.min_pass_percentage, metrics.pass_percentage,
+                             percentage_ok, "Pass percentage is below the required minimum"),
+            CriterionOutcome("max_failed_cases", policy.max_failed_cases, metrics.failed_cases,
+                             metrics.failed_cases <= policy.max_failed_cases, "Failed cases exceed the allowed maximum"),
+            CriterionOutcome("allow_skipped", policy.allow_skipped, metrics.skipped_cases,
+                             policy.allow_skipped or metrics.skipped_cases == 0, "Skipped cases are not permitted"),
+            CriterionOutcome("allow_recovered", policy.allow_recovered, metrics.recovered_cases,
+                             policy.allow_recovered or metrics.recovered_cases == 0, "Cases passing after retries are not permitted"),
         )
+
+    @property
+    def qualified(self) -> bool:
+        return all(criterion.passed for criterion in self.criteria)
+
+
+@dataclass(frozen=True)
+class CriterionOutcome:
+    name: str
+    expected: bool | int | float
+    observed: bool | int | float
+    passed: bool
+    failure_reason: str
+
+
+def _steps_match(steps, expected, status):
+    if not isinstance(steps, list) or len(steps) != len(expected) or not steps:
+        return False
+    statuses = []
+    for index, (step, configured) in enumerate(zip(steps, expected), start=1):
+        if (
+            not isinstance(step, StepResult) or type(step.index) is not int or step.index != index
+            or step.action != configured.get("action") or not _duration(step.duration_ms)
+            or step.status not in ("passed", "failed", "skipped")
+        ):
+            return False
+        statuses.append(step.status)
+    if status == "passed":
+        return all(item == "passed" for item in statuses)
+    if status == "skipped":
+        return all(item == "skipped" for item in statuses)
+    if status == "failed" and statuses.count("failed") == 1:
+        failed = statuses.index("failed")
+        return all(item == "passed" for item in statuses[:failed]) and all(item == "skipped" for item in statuses[failed + 1:])
+    return False
+
+
+def _case_evidence(case, test):
+    if not _duration(case.duration_ms) or not isinstance(case.attempts, list):
+        return False
+    if not _steps_match(case.steps, test.steps, case.status):
+        return False
+    if case.status == "skipped":
+        return not case.attempts and case.duration_ms == 0
+    if not 1 <= len(case.attempts) <= test.retries + 1:
+        return False
+    for number, attempt in enumerate(case.attempts, start=1):
+        if (
+            not isinstance(attempt, AttemptResult) or type(attempt.number) is not int
+            or attempt.number != number or not _duration(attempt.duration_ms)
+            or type(attempt.retryable) is not bool
+            or not _steps_match(attempt.steps, test.steps, attempt.status)
+        ):
+            return False
+        if number < len(case.attempts) and (
+            attempt.status != "failed" or not attempt.retryable
+            or attempt.failure_category not in ("assertion_failure", "simulated_connection_failure")
+        ):
+            return False
+    final = case.attempts[-1]
+    return (
+        final.status == case.status and final.steps == case.steps
+        and final.failure_category == case.failure_category
+        and case.duration_ms == round(sum(item.duration_ms for item in case.attempts), 3)
+    )
 
 
 def _duration(value) -> bool:
@@ -112,15 +183,14 @@ def _suite_metrics(report, expected, index, seen, issues, references):
             incomplete += 1
             issues.append("unknown_case_status")
             continue
+        if not _case_evidence(case, test):
+            incomplete += 1
+            issues.append("inconsistent_case_or_retry_evidence")
+            continue
         passed += case.status == "passed"
         failed += case.status == "failed"
         skipped += case.status == "skipped"
-        if not _duration(case.duration_ms):
-            issues.append("invalid_case_duration")
-        if case.status != "skipped":
-            if not case.attempts or case.attempts[-1].status != case.status:
-                issues.append("missing_or_inconsistent_attempts")
-            recovered += case.status == "passed" and len(case.attempts) > 1
+        recovered += case.status == "passed" and len(case.attempts) > 1
     observed = tuple(sum(isinstance(case, CaseResult) and case.status == status for case in cases)
                      for status in ("passed", "failed", "skipped"))
     counts = (report.passed, report.failed, report.skipped)
