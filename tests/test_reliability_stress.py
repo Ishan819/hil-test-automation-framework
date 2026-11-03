@@ -58,3 +58,66 @@ def test_repeated_aliased_retry_inputs_and_histories_remain_isolated():
         assert len(cases[1].attempts) == 3
     assert shared.suite.bench == {}
     assert shared.suite.tests[0].steps[0] == {"action": "expect_voltage", "value": 0, "tolerance": 0}
+
+
+def test_repeated_mixed_failures_preserve_later_work(monkeypatch):
+    from hil_automation import orchestration
+    original = orchestration.run_suite
+    def execute(suite):
+        if suite.name.startswith("exception"):
+            raise RuntimeError("task unavailable")
+        return original(suite)
+    monkeypatch.setattr(orchestration, "run_suite", execute)
+    entries = [entry("healthy"), entry("exception"), entry("assertion", [
+        {"action": "expect_temperature_below", "limit_c": 0},
+    ], retries=1), entry("later")]
+    for _ in range(10):
+        batch = run_plan(ExecutionPlan("mixed", entries * 4, 3))
+        assert batch.status == "failed"
+        assert [s.status for s in batch.suites] == ["passed", "failed", "failed", "passed"] * 4
+        stats = batch.to_dict()["statistics"]
+        assert (stats["passed_cases"], stats["failed_cases"], stats["unreported_cases"]) == (8, 4, 4)
+        assert all(s.error == "RuntimeError: task unavailable" for s in batch.suites[1::4])
+
+
+@pytest.mark.parametrize("failure", ["cancelled", "future", "submission"])
+def test_executor_boundary_failures_never_return_success(monkeypatch, failure):
+    from concurrent.futures import CancelledError, Future
+    from hil_automation import orchestration
+
+    class Executor:
+        def __init__(self, **kwargs):
+            pass
+        def __enter__(self):
+            return self
+        def __exit__(self, *args):
+            pass
+        def submit(self, *args):
+            if failure == "submission":
+                raise RuntimeError("executor unavailable")
+            future = Future()
+            if failure == "cancelled":
+                future.cancel()
+            else:
+                future.set_exception(RuntimeError("executor unavailable"))
+            return future
+
+    # Fault injection at the executor boundary; production exposes no cancellation API.
+    monkeypatch.setattr(orchestration, "ThreadPoolExecutor", Executor)
+    monkeypatch.setattr(orchestration, "wait", lambda pending, **kwargs: (set(pending), set()))
+    with pytest.raises(CancelledError if failure == "cancelled" else RuntimeError):
+        run_plan(ExecutionPlan("interrupted", [entry(str(i)) for i in range(6)], 2))
+
+
+def test_repeated_sequential_fail_fast_leaves_later_work_unstarted():
+    from hil_automation.qualification import evaluate_qualification
+    from hil_automation.qualification_policy import QualificationPolicy
+    plan = ExecutionPlan("fail-fast", [entry("fails", [
+        {"action": "expect_temperature_below", "limit_c": 0},
+    ], retries=2), entry("unstarted")])
+    for _ in range(8):
+        batch = run_plan(plan, fail_fast=True)
+        assert [s.status for s in batch.suites] == ["failed", "skipped"]
+        assert batch.suites[1].report is None
+        assert len(batch.suites[0].report.results[0].attempts) == 3
+        assert not evaluate_qualification(batch, QualificationPolicy(), expected=plan).qualified
