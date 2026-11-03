@@ -83,3 +83,23 @@ Parallel `--fail-fast` is rejected; use one worker for existing fail-fast behavi
 Workers apply only to simulated YAML batches, never native or physical devices.
 Batch duration measures wall time, not summed suite durations. The opt-in benchmark
 prints observed wall times; CPU-bound simulation may be slower with threads.
+
+
+## Release qualification
+
+```bash
+hil-run --plan plans/recovery.yaml --qualification-policy policies/strict.yaml --workers 2 --report-dir reports/qualification
+```
+
+Qualification writes a separate `qualification.json` beside the batch manifest,
+with criteria, observed counts, reasons, and execution IDs. Defaults require 100%
+passing, zero failed or skipped cases, and no cases passing after retries.
+`policies/tolerant.yaml` shows explicit alternative thresholds. Pass percentage uses
+all planned cases, including skips; retry attempts never count as extra cases.
+Missing or inconsistent evidence always prevents qualification. The Python evaluator
+requires the original suite or plan inventory alongside completed in-memory results.
+
+Exit codes remain 0 for execution and qualification success, 1 for failed tests or
+rejected qualification, and 2 for configuration or report-writing errors. A lenient
+policy does not hide a test-failure exit. Existing execution reports stay unchanged.
+These policies evaluate simulated software tests, not physical hardware safety.

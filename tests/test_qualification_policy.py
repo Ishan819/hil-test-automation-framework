@@ -86,3 +86,13 @@ def test_invalid_encoding_and_missing_policy_are_not_defaults(tmp_path):
         load_policy(path)
     with pytest.raises(OSError):
         load_policy(tmp_path / "missing.yaml")
+
+
+@pytest.mark.parametrize("name, expected", [
+    ("strict", QualificationPolicy()), ("tolerant", QualificationPolicy(90, 1, False, True)),
+])
+def test_example_policies_match_documented_acceptance_criteria(name, expected):
+    from pathlib import Path
+
+    root = Path(__file__).resolve().parents[1]
+    assert load_policy(root / "policies" / f"{name}.yaml") == expected

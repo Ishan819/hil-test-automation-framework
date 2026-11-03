@@ -45,6 +45,30 @@ jobs:
               assert suite.get("name") == item["suite"]
               assert suite.get("tests") == "3" and suite.get("failures") == "0"
           PYTHON
+      - name: Validate qualification examples and qualify parallel recovery
+        run: |
+          python - <<'PYTHON'
+          from hil_automation.qualification_policy import load_policy
+          for name in ("strict", "tolerant"):
+              load_policy(f"policies/{name}.yaml")
+          PYTHON
+          hil-run --plan plans/recovery.yaml --workers 2 --qualification-policy policies/strict.yaml --report-dir reports/qualification/passing --report-format protobuf --quiet
+      - name: Verify fault qualification rejection and exit code
+        run: |
+          python - <<'PYTHON'
+          import json
+          import subprocess
+          from pathlib import Path
+          result = subprocess.run([
+              "hil-run", "--plan", "plans/faults.yaml", "--qualification-policy", "policies/strict.yaml",
+              "--report-dir", "reports/qualification/failing", "--quiet",
+          ], capture_output=True, text=True)
+          assert result.returncode == 1, result.stdout + result.stderr
+          path = next(Path("reports/qualification/failing").glob("*/qualification.json"))
+          report = json.loads(path.read_text())
+          assert report["qualified"] is False and report["complete_evidence"] is True
+          assert report["observed"]["failed_cases"] == 2
+          PYTHON
 
   native:
     runs-on: ubuntu-latest

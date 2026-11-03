@@ -1,0 +1,5 @@
+# Example acceptance criteria; adjust explicitly for the simulated release.
+min_pass_percentage: 90
+max_failed_cases: 1
+allow_skipped: false
+allow_recovered: true

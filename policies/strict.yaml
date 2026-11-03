@@ -1,0 +1,5 @@
+# Require every planned case to pass on its first attempt.
+min_pass_percentage: 100
+max_failed_cases: 0
+allow_skipped: false
+allow_recovered: false
