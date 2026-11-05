@@ -3,31 +3,50 @@ import argparse
 import json
 from pathlib import Path
 
-from hil_automation.orchestration import run_plan, write_batch_report
-from hil_automation.plans import MAX_WORKERS, load_plan
-from hil_automation.qualification import evaluate_qualification
-from hil_automation.qualification_policy import load_policy
-from hil_automation.reporting import write_qualification_report
+import subprocess
+import sys
+from uuid import uuid4
+
+from hil_automation.plans import MAX_WORKERS
 
 ROOT = Path(__file__).resolve().parents[1]
 
 
 def demonstrate(output, workers):
-    policy = load_policy(ROOT / "policies/strict.yaml")
+    output = Path(output).resolve()
+    scenario_dir = output / "scenarios" / str(uuid4())
+    scenario_dir.mkdir(parents=True)
+
+    def execute(arguments, expected):
+        process = subprocess.run([sys.executable, "-m", "hil_automation.cli", *map(str, arguments)],
+                                 cwd=ROOT, capture_output=True, text=True)
+        if process.returncode != expected:
+            raise ValueError(f"CLI returned {process.returncode}; expected {expected}: {process.stderr.strip()}")
+
+    for name, format, suffix, expected in (("smoke", "json", "json", 0),
+                                           ("faults", "junit", "xml", 1),
+                                           ("recovery", "protobuf", "pb", 0)):
+        execute([ROOT / f"scenarios/{name}.yaml", "--report-format", format,
+                 "--report", scenario_dir / f"{name}.{suffix}", "--quiet"], expected)
     demonstrations = []
     for name, expected in (("recovery", True), ("faults", False)):
-        plan = load_plan(ROOT / f"plans/{name}.yaml")
-        batch = run_plan(plan, workers=workers)
-        manifest = write_batch_report(batch, output, "protobuf")
-        result = evaluate_qualification(batch, policy, expected=plan)
+        before = set(output.glob("*/batch.json"))
+        execute(["--plan", ROOT / f"plans/{name}.yaml", "--workers", workers,
+                 "--qualification-policy", ROOT / "policies/strict.yaml", "--report-dir", output,
+                 "--report-format", "protobuf", "--quiet"], 0 if expected else 1)
+        manifests = set(output.glob("*/batch.json")) - before
+        if len(manifests) != 1:
+            raise ValueError("Expected one new batch manifest")
+        manifest = manifests.pop()
+        batch = json.loads(manifest.read_text())
         qualification_path = manifest.parent / "qualification.json"
-        write_qualification_report(result, qualification_path)
-        evidence = result.to_dict()
-        if not result.complete or result.qualified != expected or (batch.status == "passed") != expected:
+        evidence = json.loads(qualification_path.read_text())
+        if (not evidence["complete_evidence"] or evidence["qualified"] != expected
+                or (batch["status"] == "passed") != expected):
             raise ValueError(f"Unexpected {name} demonstration outcome; inspect exported evidence")
         demonstrations.append({
-            "example": name, "execution_status": batch.status,
-            "manifest": str(manifest), "qualification_report": str(qualification_path),
+            "example": name, "execution_status": batch["status"],
+            "scenario_reports": str(scenario_dir), "manifest": str(manifest), "qualification_report": str(qualification_path),
             "decision": evidence["decision"], "observed": evidence["observed"],
             "criteria": evidence["criteria"], "failure_reasons": evidence["failure_reasons"],
             "execution_references": evidence["execution_references"],

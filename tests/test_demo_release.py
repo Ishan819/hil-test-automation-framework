@@ -38,3 +38,17 @@ def test_demo_publication_failure_returns_error(tmp_path):
     assert process.returncode == 2 and "Demo failed" in process.stderr
     assert not process.stdout
     assert output.read_text() == "preserve me"
+
+
+def test_demo_exports_three_single_suite_formats(tmp_path):
+    from xml.etree import ElementTree as ET
+
+    process = subprocess.run([sys.executable, str(SCRIPT), "--output-dir", str(tmp_path)],
+                             capture_output=True, text=True)
+    assert process.returncode == 0, process.stderr
+    examples = json.loads(process.stdout)["demonstrations"]
+    directory = Path(examples[0]["scenario_reports"])
+    assert json.loads((directory / "smoke.json").read_text())["passed"] == 3
+    faults = ET.parse(directory / "faults.xml").getroot()
+    assert faults.get("failures") == "2"
+    assert parse_result((directory / "recovery.pb").read_bytes()).summary.passed == 3
