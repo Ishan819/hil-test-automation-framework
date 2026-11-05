@@ -33,7 +33,9 @@ def verify():
             "from hil_automation.protobuf import parse_result; "
             "assert Path(hil_automation.__file__).is_relative_to(Path('env').resolve()); "
             "assert parse_result(Path('smoke.pb').read_bytes()).summary.passed == 3")
-    print("Clean wheel installation verified (JSON and Protobuf).")
+        run(str(python), str(ROOT / "tools/demo_release.py"), "--workers", "2",
+            "--output-dir", str(work / "demo"))
+    print("Clean wheel installation verified (JSON, Protobuf and CLI release demo).")
 
 
 if __name__ == "__main__":

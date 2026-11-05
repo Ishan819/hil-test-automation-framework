@@ -19,6 +19,8 @@ jobs:
           python-version: ${{ matrix.python-version }}
       - name: Install package and test dependencies
         run: python -m pip install -e ".[dev]"
+      - name: Verify clean wheel installation and installed release demonstration
+        run: python tools/verify_install.py
       - name: Run tests including parallel orchestration and native reliability
         run: python -m pytest -q --cov --cov-report=term-missing --cov-report=xml:reports/coverage.xml
       - name: Upload Python coverage
@@ -28,6 +30,12 @@ jobs:
           path: reports/coverage.xml
       - name: Verify software-only release demonstration
         run: python tools/demo_release.py --workers 2 --output-dir reports/demo
+      - name: Upload release demonstration evidence
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-demo-${{ matrix.python-version }}
+          path: reports/demo/
+          if-no-files-found: error
       - name: Run sample suite
         run: hil-run scenarios/smoke.yaml
       - name: Run recovery suite with JUnit report
