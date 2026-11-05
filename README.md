@@ -1,10 +1,52 @@
 # HIL Bench
 
-A personal project I'm working on to explore hardware testing and automation. The idea is to build a tool that can run tests, check simulated hardware behavior, and help identify failures without having to test everything manually. I'm starting with Python and a basic simulator, and I'll keep adding features as I work on it.
+HIL Bench runs YAML test scenarios against software-simulated voltage,
+temperature, and connection state. Python handles validation, retries, parallel
+suite orchestration, reports, and policy-based release qualification. C++ provides
+an independent simulator, GoogleTest tests, and Protobuf interoperability.
+
+## Install and run
+
+Use Python 3.10 or newer (CI checks 3.10–3.12) on macOS or Linux:
+
+```bash
+python3 -m venv .venv
+source .venv/bin/activate
+python -m pip install -e ".[dev]"
+hil-run scenarios/smoke.yaml --report reports/smoke.json
+python -m pytest -q
+```
+
+For a regular installation, use `python -m pip install .`. Generated Python
+Protobuf bindings are included; Python-only execution does not require CMake or
+protoc. Example scenarios, plans, policies, and tools are used from this checkout.
+
+Verify wheel building and installation into a fresh temporary environment with:
+
+```bash
+python tools/verify_install.py
+```
+
+This downloads the declared build/runtime dependencies, runs the installed
+`hil-run` outside the checkout, checks JSON and binary Protobuf output, and runs
+the release demo with the isolated interpreter. Temporary installation files are
+removed afterward. It requires package-index access.
+
+```mermaid
+flowchart LR
+    YAML[Scenarios and plans] --> Python[Python runner: isolated benches and retries]
+    Python --> Reports[JSON / JUnit XML / Protobuf]
+    Python --> Qualification[Policy and inventory validation]
+    Qualification --> Decision[qualification.json]
+    CPP[C++ simulator and GoogleTest] --> Native[Native process adapter]
+    Native --> Reports
+```
+
 ## C++ simulation tests
 
 Requires CMake 3.20+, a C++17 compiler, and Git on macOS or Linux.
-The first configure downloads GoogleTest v1.17.0 at a pinned revision.
+The first configure needs network access to download pinned GoogleTest v1.17.0,
+Protobuf v33.6, and Abseil sources.
 
 ```bash
 cmake -S cpp -B build/cpp
@@ -144,8 +186,10 @@ From the repository root with the environment activated:
 python tools/demo_release.py --workers 2 --output-dir reports/demo
 ```
 
-The demo loads the existing recovery and fault YAML plans, runs multiple suites,
-and applies `policies/strict.yaml`. It exports individual binary Protobuf reports,
+The demo invokes the supported CLI for smoke (JSON), deliberate faults (JUnit),
+and recovery (Protobuf), then runs the recovery and fault plans with
+`policies/strict.yaml`. Single-suite outputs appear under `scenarios/<unique-id>/`.
+It also exports individual binary Protobuf reports,
 a JSON batch manifest, and `qualification.json` in a unique directory per batch.
 The printed JSON shows each decision, observed case counts, individual criteria,
 failure reasons, and run IDs linking the decision to execution evidence.
@@ -155,3 +199,25 @@ an unexpected outcome or configuration/publication error. The existing `hil-run`
 exit codes are unchanged. Repeated demos preserve earlier outputs. All reports
 and coverage artifacts are ignored by Git. This validates simulated software
 behavior only; it makes no real hardware or safety certification claim.
+
+## Inspect reports and limitations
+
+The demo prints report paths and qualification decisions as JSON. Open
+`batch.json` for ordered suite outcomes and links to each suite report, and
+`qualification.json` for criteria, counts, and evidence references. JUnit XML can
+be opened in a CI test viewer. Decode a binary report from the active environment:
+
+```bash
+python -c 'from pathlib import Path; from hil_automation.protobuf import parse_result; print(parse_result(Path("reports/latest.pb").read_bytes()))'
+```
+
+Replace the example path with a generated `.pb` path. JSON retains structured
+retry histories; JUnit stores histories in `system-out`, and Protobuf stores them
+in diagnostic text. Qualification accepts validated in-memory executions and the
+original inventory, rather than importing arbitrary report files.
+
+This project tests software simulation only. It has no physical device adapters,
+real-time guarantees, or safety certification. Python steps have no hard timeout;
+native subprocesses do. Parallel workers apply to simulated suites, and parallel
+fail-fast is unsupported. C++ integration tests require built binaries; otherwise
+they skip locally. CI builds the binaries and runs those tests explicitly.
