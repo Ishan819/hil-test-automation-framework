@@ -57,8 +57,10 @@ def _number(value: Any) -> bool:
 def load_suite(path: str | Path) -> Suite:
     try:
         payload = yaml.safe_load(Path(path).read_text(encoding="utf-8"))
-    except yaml.YAMLError as exc:
-        raise ValueError(f"Invalid YAML: {exc}") from exc
+    except (yaml.YAMLError, UnicodeError) as exc:
+        mark = getattr(exc, "problem_mark", None)
+        location = f" at line {mark.line + 1}, column {mark.column + 1}" if mark else ""
+        raise ValueError("Invalid YAML" + location) from exc
 
     if not isinstance(payload, dict):
         raise ValueError("Suite must be a YAML mapping")
@@ -108,7 +110,10 @@ def load_suite(path: str | Path) -> Suite:
         if not isinstance(steps, list) or not steps:
             raise ValueError(f"Test '{test_name}' needs at least one step")
         for index, step in enumerate(steps, start=1):
-            if not isinstance(step, dict) or step.get("action") not in REQUIRED_PARAMS:
+            if (
+                not isinstance(step, dict) or not isinstance(step.get("action"), str)
+                or step["action"] not in REQUIRED_PARAMS
+            ):
                 raise ValueError(f"Unknown action in test '{test_name}', step {index}")
             action = step["action"]
             for param in REQUIRED_PARAMS[action]:

@@ -36,8 +36,10 @@ def load_plan(path: str | Path) -> ExecutionPlan:
     source = Path(path).resolve()
     try:
         payload = yaml.safe_load(source.read_text(encoding="utf-8"))
-    except yaml.YAMLError as exc:
-        raise ValueError(f"Invalid plan YAML: {exc}") from exc
+    except (yaml.YAMLError, UnicodeError) as exc:
+        mark = getattr(exc, "problem_mark", None)
+        location = f" at line {mark.line + 1}, column {mark.column + 1}" if mark else ""
+        raise ValueError("Invalid plan YAML" + location) from exc
     if not isinstance(payload, dict):
         raise ValueError("Plan must be a YAML mapping")
     if set(payload) - {"plan", "suites", "workers"}:
