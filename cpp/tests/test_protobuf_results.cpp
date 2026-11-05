@@ -73,6 +73,18 @@ TEST(ProtobufResultTest, ChecksSummaryDuplicatesAndStepIndices) {
     EXPECT_THROW(hil::validate_result(message), std::invalid_argument);
 }
 
+TEST(ProtobufResultTest, RejectsContradictoryPassingStepEvidence) {
+    for (const auto status : {pb::FAILED, pb::SKIPPED}) {
+        auto message = hil::bench_result(hil::SimulatedBench(5), "contradiction");
+        auto* step = message.mutable_cases(0)->add_steps();
+        step->set_index(1);
+        step->set_action("expect_voltage");
+        step->set_status(status);
+        step->set_details("private diagnostic");
+        EXPECT_THROW(hil::parse_result(message.SerializeAsString()), std::invalid_argument);
+    }
+}
+
 TEST(ProtobufResultTest, PreservesSkippedAndDisabledStatuses) {
     auto message = hil::bench_result(hil::SimulatedBench(5), "skips");
     message.mutable_cases(1)->set_status(pb::SKIPPED);

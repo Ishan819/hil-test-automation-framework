@@ -118,6 +118,8 @@ def validate_result(message: pb.RunResult) -> None:
             if step.status == pb.FAILED and not step.details.strip():
                 raise ProtobufError("Failed steps require diagnostic details")
             _duration(step.duration_ms)
+        if case.status == pb.PASSED and any(step.status != pb.PASSED for step in case.steps):
+            raise ProtobufError("Passed case contains unsuccessful steps")
         passed += case.status == pb.PASSED
         failed += case.status == pb.FAILED
         skipped += case.status in (pb.SKIPPED, pb.DISABLED)

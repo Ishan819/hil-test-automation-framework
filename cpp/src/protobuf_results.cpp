@@ -73,6 +73,8 @@ void validate_result(const pb::RunResult& result) {
             require(step.status() >= pb::PASSED && step.status() <= pb::SKIPPED, "Unsupported step status");
             require(step.status() != pb::FAILED || nonblank(step.details()), "Failed steps require diagnostic details");
             duration(step.duration_ms());
+            require(item.status() != pb::PASSED || step.status() == pb::PASSED,
+                    "Passed case contains unsuccessful steps");
         }
         passed += item.status() == pb::PASSED;
         failed += item.status() == pb::FAILED;
