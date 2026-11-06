@@ -1,6 +1,7 @@
 """Run YAML suites with reports or execute a separate native test binary."""
 import argparse
 import sys
+from importlib.metadata import version
 from pathlib import Path
 
 from .config import Suite, load_suite
@@ -118,6 +119,10 @@ def _run_plan(args: argparse.Namespace) -> int:
 
 def main() -> int:
     parser = argparse.ArgumentParser(description="Run a simulated HIL test suite")
+    parser.add_argument(
+        "--version", action="version",
+        version=f"hil-run {version('hil-test-automation-framework')}",
+    )
     parser.add_argument("config", nargs="?", help="Path to a YAML test suite")
     parser.add_argument("--plan", metavar="YAML", help="Run an ordered YAML execution plan")
     parser.add_argument(

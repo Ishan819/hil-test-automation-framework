@@ -9,6 +9,36 @@ import pytest
 ROOT = Path(__file__).resolve().parents[1]
 
 
+def test_cli_version_without_scenario_does_not_create_reports(tmp_path):
+    from importlib.metadata import version
+
+    finished = subprocess.run(
+        [sys.executable, "-m", "hil_automation.cli", "--version"],
+        cwd=tmp_path, capture_output=True, text=True,
+    )
+    assert finished.returncode == 0, finished.stderr
+    assert finished.stdout == f"hil-run {version('hil-test-automation-framework')}\n"
+    assert finished.stderr == ""
+    assert not list(tmp_path.iterdir())
+
+
+def test_cli_version_reads_installed_distribution_metadata(monkeypatch, capsys):
+    from hil_automation import cli
+
+    def installed_version(distribution):
+        assert distribution == "hil-test-automation-framework"
+        return "2.3.4rc1"
+
+    monkeypatch.setattr(cli, "version", installed_version)
+    monkeypatch.setattr(sys, "argv", ["hil-run", "--version"])
+    with pytest.raises(SystemExit) as exited:
+        cli.main()
+    assert exited.value.code == 0
+    captured = capsys.readouterr()
+    assert captured.out == "hil-run 2.3.4rc1\n"
+    assert captured.err == ""
+
+
 def test_cli_generates_report(tmp_path):
     report = tmp_path / "result.json"
     command = [sys.executable, "-m", "hil_automation.cli", str(ROOT / "scenarios" / "smoke.yaml"), "--report", str(report)]
