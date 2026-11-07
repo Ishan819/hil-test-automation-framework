@@ -17,6 +17,11 @@ hil-run scenarios/smoke.yaml --report reports/smoke.json
 python -m pytest -q
 ```
 
+Run `hil-run --doctor` to check the local environment without executing tests.
+Required Python components use PASS/FAIL statuses (exit 2 on failure); missing
+optional native tools do not fail a Python-only environment. Native checks verify
+availability only, and `HIL_NATIVE_TEST_BINARY` may name a compiled test executable.
+
 For a regular installation, use `python -m pip install .`. Generated Python
 Protobuf bindings are included; Python-only execution does not require CMake or
 protoc. Example scenarios, plans, policies, and tools are used from this checkout.
