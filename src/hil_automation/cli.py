@@ -4,17 +4,31 @@ import sys
 from importlib.metadata import version
 from pathlib import Path
 
-from .config import Suite, load_suite
-from .native import NativeExecutionError, run_native_tests
-from .orchestration import run_plan, write_batch_report
-from .plans import MAX_WORKERS, load_plan
-from .qualification import evaluate_qualification
-from .qualification_policy import load_policy
-from .reporting import (
-    native_report, write_json_report, write_junit_report, write_protobuf_report,
-    write_qualification_report,
-)
-from .runner import run_suite
+# Diagnostics and --version must remain usable when execution dependencies are missing.
+_EXECUTION_IMPORT_ERROR = False
+try:
+    from .config import Suite, load_suite
+    from .native import NativeExecutionError, run_native_tests
+    from .orchestration import run_plan, write_batch_report
+    from .plans import MAX_WORKERS, load_plan
+    from .qualification import evaluate_qualification
+    from .qualification_policy import load_policy
+    from .reporting import (
+        native_report, write_json_report, write_junit_report, write_protobuf_report,
+        write_qualification_report,
+    )
+    from .runner import run_suite
+except ImportError:
+    _EXECUTION_IMPORT_ERROR = True
+
+
+def _run_doctor() -> int:
+    from .doctor import check_environment
+
+    checks = check_environment()
+    for check in checks:
+        print(f"[{check.status}] {check.name}: {check.detail}")
+    return 2 if any(check.required and not check.available for check in checks) else 0
 
 
 def _run_native(args: argparse.Namespace) -> int:
@@ -123,6 +137,12 @@ def main() -> int:
         "--version", action="version",
         version=f"hil-run {version('hil-test-automation-framework')}",
     )
+    parser.add_argument("--doctor", action="store_true", help="Check required Python dependencies and optional native tools")
+    if _EXECUTION_IMPORT_ERROR:
+        args = parser.parse_args()
+        if args.doctor:
+            return _run_doctor()
+        parser.error("Execution dependencies are unavailable; run --doctor for diagnostics")
     parser.add_argument("config", nargs="?", help="Path to a YAML test suite")
     parser.add_argument("--plan", metavar="YAML", help="Run an ordered YAML execution plan")
     parser.add_argument(
@@ -174,6 +194,14 @@ def main() -> int:
         "--fail-fast", action="store_true", help="Stop execution after the first failed case",
     )
     args = parser.parse_args()
+    if args.doctor:
+        if any((args.config is not None, args.plan is not None, args.native_tests is not None,
+                args.native_results, args.native_filter is not None, args.native_timeout is not None,
+                args.qualification_policy is not None, args.workers is not None, args.report_dir is not None,
+                args.report is not None, args.report_format is not None, args.list_tests,
+                args.case is not None, args.tag is not None, args.fail_fast, args.verbose, args.quiet)):
+            parser.error("--doctor cannot be combined with execution or report options")
+        return _run_doctor()
     if args.plan is not None:
         if (
             args.config is not None or args.native_tests is not None or args.native_results
