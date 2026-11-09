@@ -3,6 +3,7 @@ import argparse
 import json
 import os
 from pathlib import Path
+from xml.etree.ElementTree import ParseError
 
 from demo_release import demonstrate
 
@@ -37,11 +38,11 @@ def main():
                     raise ValueError("A summary file is required")
                 with args.summary_file.open("a", encoding="utf-8") as stream:
                     stream.write(summary(examples, args.artifact_name))
-    except (ValueError, OSError, KeyError, TypeError, AttributeError) as exc:
+    except (ValueError, OSError, KeyError, TypeError, AttributeError, ParseError) as exc:
         if args.command == "summary" and args.summary_file is not None:
             with args.summary_file.open("a", encoding="utf-8") as stream:
                 stream.write("## Simulated CI test evidence\n\nVerification: FAILED. Required evidence is missing or inconsistent. Inspect the evidence artifact and failed steps.\n")
-        parser.exit(2, f"CI evidence generation failed: {type(exc).__name__}\n")
+        parser.exit(2, f"CI evidence {args.command} failed: {type(exc).__name__}\n")
 
 
 if __name__ == "__main__":

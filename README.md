@@ -226,3 +226,34 @@ real-time guarantees, or safety certification. Python steps have no hard timeout
 native subprocesses do. Parallel workers apply to simulated suites, and parallel
 fail-fast is unsupported. C++ integration tests require built binaries; otherwise
 they skip locally. CI builds the binaries and runs those tests explicitly.
+
+### GitHub Actions test evidence
+
+Open a **Python tests** workflow run and select a Python matrix job to see its
+**Simulated CI test evidence** summary. Counts and qualification decisions come
+from validated execution reports. The recovery plan must pass and qualify; the
+faults plan deliberately fails and must be rejected by the strict policy. An
+unexpected exit code, missing report, or inconsistent evidence fails the job.
+
+Download `ci-test-evidence-python-<version>` from the run's **Artifacts** section
+(retained for 14 days). It contains a relative-path `index.json`, batch manifests,
+qualification decisions, per-suite Protobuf reports, and representative JSON,
+JUnit, and Protobuf scenario reports. Evidence uploads and summaries still run
+after earlier failures unless the job is cancelled. Partial evidence can be useful
+for debugging, but does not imply successful verification. Existing coverage and
+release demonstration artifacts remain available separately.
+
+Reproduce the evidence locally after installing the package:
+
+```bash
+python tools/ci_evidence.py generate --output-dir reports/ci-evidence
+python tools/ci_evidence.py validate --output-dir reports/ci-evidence
+python tools/ci_evidence.py summary --output-dir reports/ci-evidence --summary-file reports/ci-summary.md
+```
+
+Use an empty output directory for each generation; old reports are rejected to
+prevent stale evidence from masking a failed execution. Reports use real run IDs
+and timestamps; the simulated inventory and expected outcomes are deterministic.
+All output stays under ignored `reports/`. Summaries encode diagnostics as plain
+text and omit raw subprocess output and local paths. These are software simulation
+checks, not qualification of physical hardware.

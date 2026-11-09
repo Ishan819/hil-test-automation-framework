@@ -1,5 +1,9 @@
 """Check CI evidence against configured inventories and existing serializers."""
 import json
+import math
+import unicodedata
+from datetime import datetime
+from uuid import UUID
 from pathlib import Path
 from xml.etree import ElementTree as ET
 
@@ -20,6 +24,7 @@ def require(condition):
 
 
 def child(directory, name):
+    require(isinstance(name, str) and not Path(name).is_absolute())
     path = (directory / name).resolve()
     require(path.is_relative_to(directory.resolve()) and path.is_file())
     return path
@@ -43,7 +48,14 @@ def restore(payload):
                             for attempt in case["attempts"]]
         cases.append(CaseResult(**case))
     report = RunReport(**data, results=cases)
-    require(report.to_dict() == payload)
+    reconstructed = report.to_dict()
+    metadata = payload["metadata"]
+    require(set(metadata) == set(reconstructed["metadata"]))
+    require(all(isinstance(value, str) and value.strip() for value in metadata.values()))
+    require(metadata["started_at"] == report.started_at and metadata["finished_at"] == report.finished_at)
+    # Metadata describes the producing runner, which may differ from this host.
+    reconstructed["metadata"] = metadata
+    require(reconstructed == payload)
     return report
 
 
@@ -60,13 +72,17 @@ def validate(output):
         executions = []
         clean = dict(payload)
         clean["suites"] = []
-        for item in payload["suites"]:
+        require(len(payload["suites"]) == len(plan.suites))
+        for item, entry in zip(payload["suites"], plan.suites):
             report = restore(item["report"])
+            expected_status = "failed" if entry.path.name == "faults.yaml" else "passed"
+            require(all(case.status == expected_status for case in report.results))
             require(report.run_id not in seen)
             seen.add(report.run_id)
             require(parse_result(child(manifest.parent, item["report_file"]).read_bytes()) == report_to_proto(report))
             executions.append(SuiteExecution(item["suite"], item["planned_cases"], report, item["error"]))
-            clean["suites"].append({key: value for key, value in item.items() if key != "report_file"})
+            clean["suites"].append({**{key: value for key, value in item.items() if key != "report_file"},
+                                    "report": report.to_dict()})
         batch = BatchReport(payload["plan"], executions, payload["started_at"], payload["finished_at"],
                             payload["duration_ms"], run_id=payload["run_id"], workers=payload["workers"])
         require(batch.run_id not in seen)
@@ -76,6 +92,7 @@ def validate(output):
         require(child(output, example["qualification_report"]).parent == manifest.parent)
         actual = evaluate_qualification(batch, load_policy(ROOT / "policies/strict.yaml"), expected=plan).to_dict()
         # Evaluation time is independent of execution; all substantive fields must match.
+        require(datetime.fromisoformat(qualification["evaluated_at"]).utcoffset() is not None)
         actual["evaluated_at"] = qualification["evaluated_at"]
         require(actual == qualification and actual["complete_evidence"])
         require(actual["qualified"] is (name == "recovery"))
@@ -85,7 +102,7 @@ def validate(output):
         require(example["execution_status"] == batch.status)
     # Independently check the three single-suite formats emitted by the demo.
     require(examples[0]["scenario_reports"] == examples[1]["scenario_reports"])
-    scenario = output / examples[0]["scenario_reports"]
+    scenario = child(output, examples[0]["scenario_reports"] + "/smoke.json").parent
     smoke = restore(read(child(scenario, "smoke.json")))
     require(evaluate_qualification(smoke, load_policy(ROOT / "policies/strict.yaml"),
                                   expected=load_suite(ROOT / "scenarios/smoke.yaml")).qualified)
@@ -93,11 +110,28 @@ def validate(output):
     expected = load_suite(ROOT / "scenarios/faults.yaml")
     require(faults.tag == "testsuite" and faults.get("name") == expected.name and bool(faults.get("id")))
     require([case.get("name") for case in faults] == [case.name for case in expected.tests])
-    require(faults.get("tests") == "2" and faults.get("failures") == "2" and faults.get("errors") == "0")
+    require(faults.get("tests") == str(len(expected.tests)) and faults.get("failures") == str(len(expected.tests)) and faults.get("errors") == "0")
+    require(faults.get("skipped") == "0")
+    require(datetime.fromisoformat(faults.get("timestamp")).utcoffset() is not None)
+    require(math.isfinite(float(faults.get("time"))) and float(faults.get("time")) >= 0)
+    require(all(case.tag == "testcase" and len(case.findall("failure")) == 1
+                and len(case) == 1 and case.find("failure").get("message")
+                and math.isfinite(float(case.get("time"))) and float(case.get("time")) >= 0
+                for case in faults))
     require(all(case.find("failure") is not None and case.get("classname") == expected.name for case in faults))
+    require(str(UUID(faults.get("id"))) not in seen)
+    seen.add(faults.get("id"))
+    require(smoke.run_id not in seen)
+    seen.add(smoke.run_id)
     recovery = parse_result(child(scenario, "recovery.pb").read_bytes())
     expected = load_suite(ROOT / "scenarios/recovery.yaml")
+    require(str(UUID(recovery.run_id)) not in seen)
     require(recovery.suite == expected.name and [case.name for case in recovery.cases] == [case.name for case in expected.tests])
+    require(datetime.fromisoformat(recovery.started_at).utcoffset() is not None)
+    require(datetime.fromisoformat(recovery.finished_at) >= datetime.fromisoformat(recovery.started_at))
+    for case, configured in zip(recovery.cases, expected.tests):
+        require(case.suite == expected.name and case.origin == 1)
+        require([step.action for step in case.steps] == [step["action"] for step in configured.steps])
     require(recovery.summary.passed == len(expected.tests) and recovery.summary.failed == 0)
     return examples
 
@@ -105,6 +139,7 @@ def validate(output):
 def safe_text(value):
     """Render bounded plain text: encode Markdown, HTML and control characters."""
     value = " ".join(str(value).split())[:400]
+    value = "".join("\ufffd" if unicodedata.category(char).startswith("C") else char for char in value)
     return "".join(char if char.isascii() and (char.isalnum() or char == " ")
                    else f"&#{ord(char)};" for char in value)
 
