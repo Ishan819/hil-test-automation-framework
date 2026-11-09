@@ -19,12 +19,16 @@ def generate(output):
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("command", choices=["generate"])
+    parser.add_argument("command", choices=["generate", "validate"])
     parser.add_argument("--output-dir", type=Path, default=Path("reports/ci-evidence"))
     args = parser.parse_args()
     try:
-        generate(args.output_dir)
-    except (ValueError, OSError) as exc:
+        if args.command == "generate":
+            generate(args.output_dir)
+        else:
+            from validate_ci_evidence import validate
+            validate(args.output_dir)
+    except (ValueError, OSError, KeyError, TypeError, AttributeError) as exc:
         parser.exit(2, f"CI evidence generation failed: {type(exc).__name__}\n")
 
 
