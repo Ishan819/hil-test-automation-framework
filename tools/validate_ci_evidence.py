@@ -100,3 +100,28 @@ def validate(output):
     require(recovery.suite == expected.name and [case.name for case in recovery.cases] == [case.name for case in expected.tests])
     require(recovery.summary.passed == len(expected.tests) and recovery.summary.failed == 0)
     return examples
+
+
+def safe_text(value):
+    """Render bounded plain text: encode Markdown, HTML and control characters."""
+    value = " ".join(str(value).split())[:400]
+    return "".join(char if char.isascii() and (char.isalnum() or char == " ")
+                   else f"&#{ord(char)};" for char in value)
+
+
+def summary(examples, artifact_name):
+    lines = ["## Simulated CI test evidence", "",
+             "Verification: passed. The faults example is an explicitly validated expected failure.", "",
+             "| Example | Execution | Passed | Failed | Qualification |", "| --- | --- | ---: | ---: | --- |"]
+    for item in examples:
+        metrics = item["observed"]
+        lines.append("| " + " | ".join(safe_text(value) for value in (
+            item["example"], item["execution_status"], metrics["passed_cases"],
+            metrics["failed_cases"], item["decision"])) + " |")
+    lines.extend(["", "Qualification failure reasons:"])
+    for item in examples:
+        for reason in item["failure_reasons"]:
+            lines.append(f"- {safe_text(item['example'])}: {safe_text(reason)}")
+    lines.extend(["", f"Evidence artifact: {safe_text(artifact_name)} (this run's Artifacts section).",
+                  "Contains index.json, batch.json, qualification.json and JSON/JUnit/Protobuf suite reports.", ""])
+    return "\n".join(lines)

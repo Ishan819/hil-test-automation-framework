@@ -31,9 +31,25 @@ jobs:
       - name: Verify software-only release demonstration
         run: python tools/demo_release.py --workers 2 --output-dir reports/demo
       - name: Generate representative CI evidence (includes expected rejection)
+        if: ${{ !cancelled() }}
         run: python tools/ci_evidence.py generate --output-dir reports/ci-evidence
       - name: Validate CI evidence against inventories and qualification policy
+        if: ${{ !cancelled() }}
         run: python tools/ci_evidence.py validate --output-dir reports/ci-evidence
+      - name: Upload CI test evidence
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@v6
+        with:
+          name: ci-test-evidence-python-${{ matrix.python-version }}
+          path: |
+            reports/ci-evidence/**/*.json
+            reports/ci-evidence/**/*.xml
+            reports/ci-evidence/**/*.pb
+          if-no-files-found: error
+          retention-days: 14
+      - name: Summarize verified CI evidence
+        if: ${{ !cancelled() }}
+        run: python tools/ci_evidence.py summary --output-dir reports/ci-evidence --artifact-name ci-test-evidence-python-${{ matrix.python-version }}
       - name: Upload release demonstration evidence
         uses: actions/upload-artifact@v4
         with:
