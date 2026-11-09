@@ -30,6 +30,8 @@ jobs:
           path: reports/coverage.xml
       - name: Verify software-only release demonstration
         run: python tools/demo_release.py --workers 2 --output-dir reports/demo
+      - name: Generate representative CI evidence (includes expected rejection)
+        run: python tools/ci_evidence.py generate --output-dir reports/ci-evidence
       - name: Upload release demonstration evidence
         uses: actions/upload-artifact@v4
         with:
