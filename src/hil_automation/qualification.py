@@ -152,7 +152,8 @@ def _case_evidence(case, test):
             return False
     final = case.attempts[-1]
     return (
-        final.status == case.status and final.steps == case.steps
+        not (final.status == "failed" and final.retryable and len(case.attempts) != test.retries + 1)
+        and final.status == case.status and final.steps == case.steps
         and final.failure_category == case.failure_category
         and case.duration_ms == round(sum(item.duration_ms for item in case.attempts), 3)
     )

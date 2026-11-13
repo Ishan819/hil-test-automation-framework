@@ -4,6 +4,8 @@ from pathlib import Path
 
 import yaml
 
+from .yaml_loader import ExecutionLoader
+
 from .config import Suite, load_suite
 
 
@@ -35,7 +37,7 @@ class ExecutionPlan:
 def load_plan(path: str | Path) -> ExecutionPlan:
     source = Path(path).resolve()
     try:
-        payload = yaml.safe_load(source.read_text(encoding="utf-8"))
+        payload = yaml.load(source.read_text(encoding="utf-8"), Loader=ExecutionLoader)
     except (yaml.YAMLError, UnicodeError) as exc:
         mark = getattr(exc, "problem_mark", None)
         location = f" at line {mark.line + 1}, column {mark.column + 1}" if mark else ""

@@ -6,6 +6,8 @@ from typing import Any
 
 import yaml
 
+from .yaml_loader import ExecutionLoader
+
 from .bench import SimulatedBench
 
 
@@ -56,7 +58,7 @@ def _number(value: Any) -> bool:
 
 def load_suite(path: str | Path) -> Suite:
     try:
-        payload = yaml.safe_load(Path(path).read_text(encoding="utf-8"))
+        payload = yaml.load(Path(path).read_text(encoding="utf-8"), Loader=ExecutionLoader)
     except (yaml.YAMLError, UnicodeError) as exc:
         mark = getattr(exc, "problem_mark", None)
         location = f" at line {mark.line + 1}, column {mark.column + 1}" if mark else ""
