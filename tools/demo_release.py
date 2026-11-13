@@ -6,6 +6,9 @@ from pathlib import Path
 import subprocess
 import sys
 from uuid import uuid4
+from xml.etree.ElementTree import ParseError
+
+from validate_ci_evidence import validate_examples
 
 from hil_automation.plans import MAX_WORKERS
 
@@ -14,12 +17,17 @@ ROOT = Path(__file__).resolve().parents[1]
 
 def demonstrate(output, workers):
     output = Path(output).resolve()
+    if (output / "scenarios").is_symlink():
+        raise ValueError("Scenario output must not be a symbolic link")
     scenario_dir = output / "scenarios" / str(uuid4())
     scenario_dir.mkdir(parents=True)
 
     def execute(arguments, expected):
-        process = subprocess.run([sys.executable, "-m", "hil_automation.cli", *map(str, arguments)],
-                                 cwd=ROOT, capture_output=True, text=True)
+        try:
+            process = subprocess.run([sys.executable, "-m", "hil_automation.cli", *map(str, arguments)],
+                                     cwd=ROOT, capture_output=True, text=True, timeout=120)
+        except subprocess.TimeoutExpired as exc:
+            raise ValueError("CLI timed out before completing demonstration evidence") from exc
         if process.returncode != expected:
             raise ValueError(f"CLI returned {process.returncode}; expected {expected}: {process.stderr.strip()}")
 
@@ -51,7 +59,18 @@ def demonstrate(output, workers):
             "criteria": evidence["criteria"], "failure_reasons": evidence["failure_reasons"],
             "execution_references": evidence["execution_references"],
         })
+    try:
+        validate_examples(output, relative_examples(output, demonstrations))
+    except (ValueError, OSError, KeyError, TypeError, AttributeError, ParseError) as exc:
+        raise ValueError("Demonstration evidence is missing or inconsistent; inspect exported reports") from exc
     return demonstrations
+
+
+def relative_examples(output, examples):
+    """Keep artifact paths portable while leaving the interactive demo paths intact."""
+    return [{**example, **{key: str(Path(example[key]).relative_to(output))
+                          for key in ("manifest", "qualification_report", "scenario_reports")}}
+            for example in examples]
 
 
 def main():
@@ -61,7 +80,7 @@ def main():
     args = parser.parse_args()
     try:
         results = demonstrate(args.output_dir, args.workers)
-    except (ValueError, OSError) as exc:
+    except (ValueError, OSError, KeyError, TypeError, AttributeError, ParseError) as exc:
         parser.exit(2, f"Demo failed: {exc}\n")
     print(json.dumps({"scope": "simulated_software_tests", "demonstrations": results}, indent=2))
     return 0

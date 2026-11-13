@@ -61,7 +61,12 @@ def restore(payload):
 
 def validate(output):
     output = Path(output).resolve()
-    examples = read(child(output, "index.json"))["demonstrations"]
+    return validate_examples(output, read(child(output, "index.json"))["demonstrations"])
+
+
+def validate_examples(output, examples):
+    """Validate the shared demo inventory without requiring a CI index file."""
+    output = Path(output).resolve()
     require([item["example"] for item in examples] == ["recovery", "faults"])
     seen = set()
     for example in examples:

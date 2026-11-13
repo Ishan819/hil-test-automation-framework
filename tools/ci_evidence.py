@@ -5,17 +5,14 @@ import os
 from pathlib import Path
 from xml.etree.ElementTree import ParseError
 
-from demo_release import demonstrate
+from demo_release import demonstrate, relative_examples
 
 
 def generate(output):
     output = Path(output).resolve()
     if output.exists() and any(output.iterdir()):
         raise ValueError("Evidence directory must be empty")
-    examples = demonstrate(output, 2)
-    for example in examples:
-        for key in ("manifest", "qualification_report", "scenario_reports"):
-            example[key] = str(Path(example[key]).relative_to(output))
+    examples = relative_examples(output, demonstrate(output, 2))
     (output / "index.json").write_text(json.dumps({"demonstrations": examples}, indent=2) + "\n")
 
 
