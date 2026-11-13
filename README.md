@@ -236,3 +236,6 @@ real-time guarantees, safety certification, or production deployment claims.
 Python steps have no hard in-process timeout; native subprocesses do. Parallel
 workers apply only to simulated suites. Native tools and network-fetched build
 dependencies are additional requirements, not part of Python-only execution.
+
+See the [dated release candidate audit](docs/release-readiness.md) for local
+verification results and the checks still requiring hosted CI.
