@@ -1,249 +1,213 @@
 # HIL Bench
 
 HIL Bench runs YAML test scenarios against software-simulated voltage,
-temperature, and connection state. Python handles validation, retries, parallel
-suite orchestration, reports, and policy-based release qualification. C++ provides
-an independent simulator, GoogleTest tests, and Protobuf interoperability.
+temperature, and connection state. It records individual test outcomes, retries,
+and failure diagnostics, then evaluates completed runs against release policies.
+It does not connect to physical hardware.
 
-## Install and run
+The project uses Python, PyYAML, pytest, C++17, CMake, GoogleTest, Protobuf, and
+GitHub Actions. Python manages execution and reporting; C++ provides an independent
+bench simulator and native tests. A shared Protobuf schema supports report exchange
+between the two languages.
 
-Use Python 3.10 or newer (CI checks 3.10–3.12) on macOS or Linux:
+## Quick start
+
+Use Python 3.10 or newer on macOS or Linux. CI tests Python 3.10–3.12.
 
 ```bash
 python3 -m venv .venv
 source .venv/bin/activate
 python -m pip install -e ".[dev]"
+hil-run --version
+hil-run --doctor
 hil-run scenarios/smoke.yaml --report reports/smoke.json
+hil-run scenarios/recovery.yaml --report-format protobuf --report reports/recovery.pb
 python -m pytest -q
 ```
 
-Run `hil-run --doctor` to check the local environment without executing tests.
-Required Python components use PASS/FAIL statuses (exit 2 on failure); missing
-optional native tools do not fail a Python-only environment. Native checks verify
-availability only, and `HIL_NATIVE_TEST_BINARY` may name a compiled test executable.
-
 For a regular installation, use `python -m pip install .`. Generated Python
-Protobuf bindings are included; Python-only execution does not require CMake or
-protoc. Example scenarios, plans, policies, and tools are used from this checkout.
+Protobuf bindings are bundled, so Python-only execution needs neither CMake nor
+protoc. Scenarios, plans, policies, and developer tools are used from this checkout.
 
-Verify wheel building and installation into a fresh temporary environment with:
+`--doctor` checks required Python dependencies and bundled bindings without
+running tests. Missing required components return exit code 2; missing optional
+native tools do not fail a Python-only installation. Native checks report
+availability, not compiler compatibility or successful execution.
 
-```bash
-python tools/verify_install.py
-```
-
-This downloads the declared build/runtime dependencies, runs the installed
-`hil-run` outside the checkout, checks JSON and binary Protobuf output, and runs
-the release demo with the isolated interpreter. Temporary installation files are
-removed afterward. It requires package-index access.
+## Architecture
 
 ```mermaid
 flowchart LR
-    YAML[Scenarios and plans] --> Python[Python runner: isolated benches and retries]
-    Python --> Reports[JSON / JUnit XML / Protobuf]
-    Python --> Qualification[Policy and inventory validation]
-    Qualification --> Decision[qualification.json]
-    CPP[C++ simulator and GoogleTest] --> Native[Native process adapter]
-    Native --> Reports
+    YAML[Scenarios and plans] --> Runner[Python runner and bounded workers]
+    Runner --> Bench[Fresh simulated bench per case and attempt]
+    Runner --> Reports[JSON / JUnit XML / Protobuf]
+    Runner --> Policy[Qualification with policy and original inventory]
+    Policy --> Decision[qualification.json]
+    CPP[C++ simulator and GoogleTest] --> Adapter[Native subprocess and XML adapter]
+    Adapter --> Reports
+    Schema[Shared Protobuf schema] --> Exchange[Python and C++ report exchange]
 ```
 
-## C++ simulation tests
+`config.py` and `plans.py` validate execution inputs. `runner.py` executes steps,
+while `orchestration.py` runs suites sequentially or with bounded thread workers.
+`reporting.py` and `protobuf.py` export results. `qualification.py` checks evidence
+against the expected inventory before applying the acceptance policy.
 
-Requires CMake 3.20+, a C++17 compiler, and Git on macOS or Linux.
-The first configure needs network access to download pinned GoogleTest v1.17.0,
-Protobuf v33.6, and Abseil sources.
+The native adapter launches a separate GoogleTest process, validates its XML and
+exit status, and maps captured outcomes into the same report formats. Python and
+C++ simulators do not share bench state. The C++ Protobuf exchange utility verifies
+cross-language serialization independently of the GoogleTest XML adapter.
 
-```bash
-cmake -S cpp -B build/cpp
-cmake --build build/cpp
-ctest --test-dir build/cpp --output-on-failure
-hil-run --native-tests build/cpp/hil_bench_tests --native-timeout 30
-```
+## End-to-end demonstration
 
-Install the Python package first with `python -m pip install -e ".[dev]"`.
-Native tests run in a separate process with their own simulator; they do not
-share Python bench state. Use `--native-results` for individual GoogleTest outcomes,
-or `--report reports/native.json` to capture them in a HIL report. Add
-`--report-format junit` for JUnit XML. Report options automatically enable XML capture;
-without them, raw native execution remains unchanged. Native mode supports
-`--verbose` and `--quiet`. CLI exit codes are 0 for success, 1 for test failure,
-and 2 for launch, timeout, or argument errors. YAML commands work as before.
-
-
-To include the optional mixed-outcome reporting fixture, configure with
-`cmake -S cpp -B build/cpp -DHIL_BUILD_REPORTING_FIXTURE=ON` and rebuild.
-Run `python -m pytest -q -m native_integration` for real-binary reporting tests.
-These tests skip when their binaries are absent; CI builds and requires both.
-The intentionally failing fixture is separate from the passing CTest suite.
-
-## Protobuf development
-
-Python bindings are tracked; C++ bindings and compiled dependencies stay in `build/`.
-Use Protobuf 33.6 (Python runtime 6.33.6) throughout. Regenerate Python bindings with
-`python tools/generate_proto.py --protoc /path/to/protoc`; add `--check` to verify
-that tracked bindings match the schema. Do not edit generated bindings manually.
-
-CMake builds `protoc` and the C++ runtime from the same pinned source revision;
-no system C++ Protobuf library is used. After building, run
-`cmake --build build/cpp --target check_python_proto` to check Python generation.
-Use `--report-format protobuf` with YAML or native CLI commands for binary reports
-(default: `reports/latest.pb`). Existing binary reports may be replaced; unrelated
-files and symlinks are refused.
-
-Run `python -m pytest -q -m protobuf_integration` for real bidirectional exchange tests.
-The utility supports `hil_proto_exchange produce OUTPUT RUN_ID [--fault]`,
-`verify INPUT`, and `roundtrip INPUT OUTPUT`; it never replaces existing output files.
-Its exit code describes successful validation/serialization, not the contained test outcomes.
-
-## Tags, retries, and plans
-
-YAML cases may set `tags: [smoke, thermal]` and `retries: 1`.
-Use `--tag thermal` with a tagged suite; unknown tags return exit code 2.
-Retries default to zero and permit at most three additional attempts, each with
-a fresh simulated bench. Only supported assertion/connection failures are retried.
-JSON preserves structured histories; JUnit system-out and Protobuf diagnostic
-details retain prior attempts without changing the binary schema.
-
-```bash
-hil-run --plan plans/recovery.yaml --report-dir reports/batches --report-format junit
-hil-run --plan plans/faults.yaml --fail-fast --quiet
-```
-
-Each batch gets a unique directory, individual suite reports, and a JSON manifest.
-The fault plan intentionally returns exit code 1. Plan paths are relative to the
-plan file. Native processes support configurable timeouts; Python steps have no
-hard in-process timeout guarantee.
-
-
-For independent software-simulated suites, opt into bounded thread workers:
-
-```bash
-hil-run --plan plans/recovery.yaml --workers 4 --report-dir reports/parallel
-python tools/benchmark_parallel.py --workers 4
-```
-
-Plans may also set `workers: 4`; the CLI overrides that setting. The default is
-one worker, with an allowed range of 1–8. Parallel results remain in plan order,
-with separate bench state and suite reports. Worker exceptions fail the batch;
-cases without complete outcomes are counted as `unreported_cases` in the manifest.
-Parallel `--fail-fast` is rejected; use one worker for existing fail-fast behavior.
-Workers apply only to simulated YAML batches, never native or physical devices.
-Batch duration measures wall time, not summed suite durations. The opt-in benchmark
-prints observed wall times; CPU-bound simulation may be slower with threads.
-
-
-## Release qualification
-
-```bash
-hil-run --plan plans/recovery.yaml --qualification-policy policies/strict.yaml --workers 2 --report-dir reports/qualification
-```
-
-Qualification writes a separate `qualification.json` beside the batch manifest,
-with criteria, observed counts, reasons, and execution IDs. Defaults require 100%
-passing, zero failed or skipped cases, and no cases passing after retries.
-`policies/tolerant.yaml` shows explicit alternative thresholds. Pass percentage uses
-all planned cases, including skips; retry attempts never count as extra cases.
-Missing or inconsistent evidence always prevents qualification. The Python evaluator
-requires the original suite or plan inventory alongside completed in-memory results.
-
-Exit codes remain 0 for execution and qualification success, 1 for failed tests or
-rejected qualification, and 2 for configuration or report-writing errors. A lenient
-policy does not hide a test-failure exit. Existing execution reports stay unchanged.
-These policies evaluate simulated software tests, not physical hardware safety.
-
-## Repeatable performance and reliability checks
-
-Activate the project environment first (`source .venv/bin/activate`) and install
-`python -m pip install -e ".[dev]"`. Python 3.10–3.12 are checked in CI.
-
-```bash
-python tools/benchmark_parallel.py --suites 8 --steps 2000 --workers 4 --repeats 20 --warmups 2 --output reports/benchmark.json
-python -m pytest -q --cov --cov-report=term-missing --cov-report=xml:reports/coverage.xml
-```
-
-The benchmark is opt-in. Each suite runs one `voltage-cycle` case alternating
-setting 5 V and asserting 5 V on the real Python simulator. Each run builds fresh
-inputs and creates independent benches and in-memory reports; nothing is written
-during timing. `perf_counter()` measures execution, including orchestration and
-parallel input snapshots, but excludes workload construction and report export.
-Sequential and parallel runs use the same steps and alternate measurement order.
-Warm-ups are discarded. Synthetic clocks in unit tests verify arithmetic only.
-
-Bounds: 1–128 suites, 1–100000 steps per suite, 1–100 repetitions, 0–10 warm-ups,
-and 2–8 parallel workers (the sequential baseline always uses one).
-JSON includes every observed duration in seconds, Python/OS versions, configuration,
-median/minimum/maximum/mean, and speedup = sequential median / mode median.
-A zero median gives null speedup. p95 appears only with at least 20 measurements,
-using the sorted sample at one-based rank `ceil(0.95 * n)`. This is a descriptive
-sample statistic, not a latency guarantee. Threads may be slower for this CPU-bound
-workload. Compare results on the same machine and configuration.
-
-Coverage measures statements and branches, including Python subprocesses, and
-excludes generated Protobuf bindings. pytest-cov is a development dependency;
-there is no enforced percentage threshold. CI runs deterministic stress tests
-and exports coverage without asserting benchmark timing.
-
-## Software-only release demonstration
-
-From the repository root with the environment activated:
+From the checkout with the environment activated:
 
 ```bash
 python tools/demo_release.py --workers 2 --output-dir reports/demo
 ```
 
-The demo invokes the supported CLI for smoke (JSON), deliberate faults (JUnit),
-and recovery (Protobuf), then runs the recovery and fault plans with
-`policies/strict.yaml`. Single-suite outputs appear under `scenarios/<unique-id>/`.
-It also exports individual binary Protobuf reports,
-a JSON batch manifest, and `qualification.json` in a unique directory per batch.
-The printed JSON shows each decision, observed case counts, individual criteria,
-failure reasons, and run IDs linking the decision to execution evidence.
-Recovery qualifies; faults intentionally fails two cases and is rejected.
-The demonstration returns 0 when both expected outcomes are reproduced and 2 on
-an unexpected outcome or configuration/publication error. The existing `hil-run`
-exit codes are unchanged. Repeated demos preserve earlier outputs. All reports
-and coverage artifacts are ignored by Git. This validates simulated software
-behavior only; it makes no real hardware or safety certification claim.
+The demo runs smoke (JSON), deliberate faults (JUnit XML), and recovery
+(Protobuf), then executes the recovery and fault plans with two bounded workers
+and `policies/strict.yaml`. Use `--workers 1` for sequential execution.
 
-## Inspect reports and limitations
+It checks each CLI exit code and validates the complete exported evidence using
+the same validator as CI. The printed JSON includes decisions, counts, criteria,
+failure reasons, run IDs, and report paths. Recovery qualifies; the fault plan
+intentionally fails two cases and is rejected. The demo returns 0 only when all
+expected outcomes and reports are verified, and 2 on an unexpected result,
+configuration error, incomplete evidence, or publication failure. Each CLI call
+has a 120-second watchdog; this does not impose timeouts on individual Python steps.
 
-The demo prints report paths and qualification decisions as JSON. Open
-`batch.json` for ordered suite outcomes and links to each suite report, and
-`qualification.json` for criteria, counts, and evidence references. JUnit XML can
-be opened in a CI test viewer. Decode a binary report from the active environment:
+Scenario reports use `reports/demo/scenarios/<unique-id>/`; each batch has its own
+unique directory containing suite reports, `batch.json`, and `qualification.json`.
+Repeated demos preserve previous evidence. A symlinked scenario directory is
+rejected to prevent redirecting output outside the selected root.
+
+To inspect the fault scenario directly:
 
 ```bash
-python -c 'from pathlib import Path; from hil_automation.protobuf import parse_result; print(parse_result(Path("reports/latest.pb").read_bytes()))'
+hil-run scenarios/faults.yaml --report-format junit --report reports/faults.xml
 ```
 
-Replace the example path with a generated `.pb` path. JSON retains structured
-retry histories; JUnit stores histories in `system-out`, and Protobuf stores them
-in diagnostic text. Qualification accepts validated in-memory executions and the
-original inventory, rather than importing arbitrary report files.
+This command intentionally returns **1**. The demo explicitly checks that exit
+code; it treats CLI configuration and execution errors as unexpected failures.
 
-This project tests software simulation only. It has no physical device adapters,
-real-time guarantees, or safety certification. Python steps have no hard timeout;
-native subprocesses do. Parallel workers apply to simulated suites, and parallel
-fail-fast is unsupported. C++ integration tests require built binaries; otherwise
-they skip locally. CI builds the binaries and runs those tests explicitly.
+## Selection, retries, and parallel plans
 
-### GitHub Actions test evidence
+YAML cases may specify `tags: [smoke, thermal]` and `retries: 1`. Use `--list-tests`,
+`--case NAME`, or `--tag TAG` with a suite. Unknown selections return exit code 2.
+Duplicate explicit YAML fields are rejected rather than silently replacing tests
+or assertion parameters. YAML aliases and explicit overrides of merge defaults
+remain supported.
 
-Open a **Python tests** workflow run and select a Python matrix job to see its
-**Simulated CI test evidence** summary. Counts and qualification decisions come
-from validated execution reports. The recovery plan must pass and qualify; the
-faults plan deliberately fails and must be rejected by the strict policy. An
-unexpected exit code, missing report, or inconsistent evidence fails the job.
+Retries default to zero, with at most three additional attempts. Every case and
+retry gets a fresh bench. Only supported simulated assertion/connection failures
+are retried; configuration errors and unexpected programming exceptions are not.
 
-Download `ci-test-evidence-python-<version>` from the run's **Artifacts** section
-(retained for 14 days). It contains a relative-path `index.json`, batch manifests,
-qualification decisions, per-suite Protobuf reports, and representative JSON,
-JUnit, and Protobuf scenario reports. Evidence uploads and summaries still run
-after earlier failures unless the job is cancelled. Partial evidence can be useful
-for debugging, but does not imply successful verification. Existing coverage and
-release demonstration artifacts remain available separately.
+```bash
+hil-run --plan plans/recovery.yaml --report-dir reports/batches --report-format junit
+hil-run --plan plans/recovery.yaml --workers 4 --report-dir reports/parallel
+```
 
-Reproduce the evidence locally after installing the package:
+Plan paths resolve relative to the plan file. Plans can set `workers`, overridden
+by the CLI; the default is 1 and the supported range is 1–8. Parallel suites have
+independent inputs and bench state, and reports remain in plan order. Worker
+exceptions fail the batch; missing outcomes are counted as `unreported_cases`.
+Use `--fail-fast` with one worker; parallel fail-fast is unsupported.
+
+## Reports and release qualification
+
+JSON preserves step details and structured retry histories. JUnit stores retry
+histories in `system-out`; Protobuf stores them in diagnostic text without
+changing the shared binary schema. Each run has an execution ID and timestamps.
+Batch manifests associate suites with their individual report files.
+
+```bash
+hil-run --plan plans/recovery.yaml --qualification-policy policies/strict.yaml --workers 2 --report-dir reports/qualification
+python -c 'from pathlib import Path; from hil_automation.protobuf import parse_result; print(parse_result(Path("reports/recovery.pb").read_bytes()))'
+```
+
+Qualification writes a separate `qualification.json` with observed counts,
+criteria, failure reasons, and execution references. Strict defaults require all
+planned cases to pass, zero failures or skips, and no cases passing after retries.
+`policies/tolerant.yaml` demonstrates alternative thresholds. All planned cases,
+including skips, contribute to pass percentage; retries do not add extra cases.
+
+The evaluator requires the original suite or plan alongside completed in-memory
+results. Missing, contradictory, or prematurely ended retry evidence cannot
+qualify, even under a permissive policy. A lenient policy never hides a failed-test
+CLI exit. Policies evaluate simulated software tests, not physical device safety.
+
+CLI exit codes are **0** for success, **1** for test failure or rejected
+qualification, and **2** for configuration, launch, timeout, or reporting errors.
+Reports and coverage output under `reports/` are ignored by Git.
+
+## C++ and Protobuf verification
+
+Native development additionally requires CMake 3.20+, Git, and a C++17 compiler.
+The first configure downloads pinned GoogleTest v1.17.0, Protobuf v33.6, and Abseil
+sources. CMake builds protoc and its C++ runtime from the same revision.
+
+```bash
+cmake -S cpp -B build/cpp -DHIL_BUILD_REPORTING_FIXTURE=ON
+cmake --build build/cpp --parallel 2
+ctest --test-dir build/cpp --output-on-failure --no-tests=error
+cmake --build build/cpp --target check_python_proto
+hil-run --native-tests build/cpp/hil_bench_tests --native-timeout 30 --report reports/native.json
+```
+
+`HIL_BUILD_REPORTING_FIXTURE` adds an intentionally failing binary for adapter
+regression tests; it is separate from the passing CTest suite. Native report
+options enable XML capture automatically. `--native-results` displays individual
+outcomes; `--native-filter PATTERN` applies a GoogleTest filter and returns 2 if
+nothing matches.
+
+Require the built binaries when running cross-language integration tests:
+
+```bash
+HIL_NATIVE_TEST_BINARY=build/cpp/hil_bench_tests HIL_NATIVE_REPORTING_BINARY=build/cpp/hil_reporting_fixture HIL_PROTO_EXCHANGE_BINARY=build/cpp/hil_proto_exchange python -m pytest -q -m "native_integration or protobuf_integration"
+```
+
+Without configured binaries, these tests discover local builds or skip when absent.
+Python bindings are tracked; native builds and C++ bindings remain under ignored
+`build/`. Regenerate Python bindings with
+`python tools/generate_proto.py --protoc build/cpp/_deps/protobuf-build/protoc`;
+add `--check` for verification without editing. The required protoc is 33.6 and
+Python runtime is pinned to 6.33.6. Do not edit generated bindings manually.
+
+`hil_proto_exchange` supports `produce OUTPUT RUN_ID [--fault]`, `verify INPUT`,
+and `roundtrip INPUT OUTPUT`. Its exit code describes validation/serialization,
+not the contained test outcomes. It never replaces an existing output file.
+
+## Installation, CI, and performance checks
+
+Verify a wheel in a clean temporary environment outside the checkout:
+
+```bash
+python tools/verify_install.py
+python -m pytest -q --cov --cov-report=term-missing --cov-report=xml:reports/coverage.xml
+```
+
+The installation check needs package-index access. It builds and installs the
+wheel, checks dependency consistency, version metadata, Python-only diagnostics,
+JSON and Protobuf output, and the release demo. Temporary environments are removed
+afterward. Coverage includes Python subprocesses and excludes generated bindings;
+there is no enforced percentage threshold.
+
+GitHub Actions runs the Python matrix, clean installation, release demo, parallel
+execution and qualification checks, plus a native job with CTest, pinned Protobuf
+generation, and real-binary integration tests.
+
+Each Python job has a **Simulated CI test evidence** summary. Counts and decisions
+come from validated reports. Download `ci-test-evidence-python-<version>` from the
+run's **Artifacts** section (retained for 14 days). It contains a relative-path
+`index.json`, batch and qualification JSON, suite Protobuf, and representative
+JSON/JUnit/Protobuf scenario reports. Uploads and summaries run after earlier
+failures unless cancelled. Partial evidence aids debugging but does not imply
+successful verification. Summaries encode diagnostics as plain text and omit raw
+subprocess output and local paths. Coverage and release demo artifacts are separate.
+
+Reproduce the CI evidence with a fresh or empty output directory:
 
 ```bash
 python tools/ci_evidence.py generate --output-dir reports/ci-evidence
@@ -251,9 +215,24 @@ python tools/ci_evidence.py validate --output-dir reports/ci-evidence
 python tools/ci_evidence.py summary --output-dir reports/ci-evidence --summary-file reports/ci-summary.md
 ```
 
-Use an empty output directory for each generation; old reports are rejected to
-prevent stale evidence from masking a failed execution. Reports use real run IDs
-and timestamps; the simulated inventory and expected outcomes are deterministic.
-All output stays under ignored `reports/`. Summaries encode diagnostics as plain
-text and omit raw subprocess output and local paths. These are software simulation
-checks, not qualification of physical hardware.
+The optional benchmark measures real simulated workloads without enforcing speed
+thresholds in CI:
+
+```bash
+python tools/benchmark_parallel.py --suites 8 --steps 2000 --workers 4 --repeats 20 --warmups 2 --output reports/benchmark.json
+```
+
+It reports observed wall times, environment metadata, summary statistics, and
+speedup relative to sequential execution. Timing includes orchestration and input
+snapshots, excluding workload construction and report export. p95 requires at
+least 20 measurements and uses nearest rank. Compare runs on the same machine;
+threads may be slower for this CPU-bound workload. No throughput improvement is
+claimed.
+
+## Known limitations
+
+This is a software simulation project without physical device adapters,
+real-time guarantees, safety certification, or production deployment claims.
+Python steps have no hard in-process timeout; native subprocesses do. Parallel
+workers apply only to simulated suites. Native tools and network-fetched build
+dependencies are additional requirements, not part of Python-only execution.
